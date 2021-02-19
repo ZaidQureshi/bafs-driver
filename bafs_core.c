@@ -15,8 +15,8 @@ MODULE_VERSION("0.1");
 
 #define BAFS_MINORS (1U << MINORBITS)
 
-#define BAFS_CORE_DEVICE_NAME "bafs_core"
-#define BAFS_CORE_CLASS_NAME  "bafs_core"
+#define BAFS_CORE_DEVICE_NAME "bafs"
+#define BAFS_CORE_CLASS_NAME  "bafs"
 
 static dev_t bafs_major;
 

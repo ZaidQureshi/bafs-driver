@@ -1,8 +1,8 @@
 #ifndef __BAFS_CTRL_H__
 #define __BAFS_CTRL_H__
 
-#define BAFS_CTRL_DEVICE_NAME "bafs_ctrl%d"
-#define BAFS_CTRL_CLASS_NAME  "bafs_ctrl"
+#define BAFS_CTRL_DEVICE_NAME "bafsc%d"
+#define BAFS_CTRL_CLASS_NAME  "bafsc"
 
 #define PCI_CLASS_NVME      0x010802
 #define PCI_CLASS_NVME_MASK 0xffffff
