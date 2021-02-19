@@ -4,6 +4,17 @@
 #define BAFS_CTRL_DEVICE_NAME "bafs_ctrl%d"
 #define BAFS_CTRL_CLASS_NAME  "bafs_ctrl"
 
+#define PCI_CLASS_NVME      0x010802
+#define PCI_CLASS_NVME_MASK 0xffffff
+
+static const struct pci_device_id pci_dev_id_table[] = {
+
+    { PCI_DEVICE_CLASS(PCI_CLASS_NVME, PCI_CLASS_NVME_MASK) },
+    {0,}
+
+};
+MODULE_DEVICE_TABLE(pci, pci_dev_id_table);
+
 struct bafs_ctrl {
 
     spinlock_t      lock;
@@ -36,7 +47,6 @@ static inline void bafs_put_ctrl(struct bafs_ctrl* ctrl) {
     put_device(ctrl->device);
 
 }
-
 
 
 #endif                          // __BAFS_CTRL_H__

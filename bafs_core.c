@@ -4,7 +4,6 @@
 #include <linux/cdev.h>
 #include <linux/pci.h>
 
-#include "bafs_pci.h"
 #include "bafs_ctrl.h"
 #include "bafs_group.h"
 
@@ -48,6 +47,8 @@ static int bafs_ctrl_pci_probe(struct pci_dev* pdev, const struct pci_device_id*
     pci_set_master(pdev);
     pci_set_drvdata(pdev, ctrl);
     pci_free_irq_vectors(pdev);
+    pci_disable_msi(pdev);
+    pci_disable_msix(pdev);
     dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
 
     ret = pci_request_region(pdev, 0, BAFS_CTRL_CLASS_NAME);
@@ -135,7 +136,7 @@ static void bafs_ctrl_pci_remove(struct pci_dev* pdev) {
 
 static struct pci_driver bafs_ctrl_pci_driver = {
 
-    .name     = BAFS_CTRL_DEVICE_NAME,
+    .name     = BAFS_CTRL_CLASS_NAME,
     .id_table = pci_dev_id_table,
     .probe    = bafs_ctrl_pci_probe,
     .remove   = bafs_ctrl_pci_remove,
