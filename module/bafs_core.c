@@ -12,6 +12,7 @@
 #include <bafs_core_ioctl.h>
 #include <bafs_ctrl_ioctl.h>
 #include <bafs_util.h>
+#include <bafs_ctrl_release.h>
 
 
 MODULE_LICENSE("GPL");
@@ -24,19 +25,22 @@ MODULE_VERSION("0.1");
 
 
 
-static dev_t bafs_major;
+dev_t bafs_major = {0};
 
 static struct class* bafs_core_class  = NULL;
-static struct class* bafs_ctrl_class  = NULL;
-static struct class* bafs_group_class = NULL;
+struct class* bafs_ctrl_class  = NULL;
+struct class* bafs_group_class = NULL;
 
 
 static struct cdev    bafs_core_cdev;
-static struct device* bafs_core_device;
+static struct device* bafs_core_device = NULL;
 
-static DEFINE_IDA(bafs_minor_ida);
-static DEFINE_IDA(bafs_ctrl_ida);
+DEFINE_IDA(bafs_minor_ida);
+DEFINE_IDA(bafs_ctrl_ida);
 //static DEFINE_IDA(bafs_group_ida);
+
+struct xarray bafs_mem_xa = {0};
+
 
 static int bafs_ctrl_pci_probe(struct pci_dev* pdev, const struct pci_device_id* id) {
 
@@ -76,6 +80,9 @@ static int bafs_ctrl_pci_probe(struct pci_dev* pdev, const struct pci_device_id*
 
 
     spin_lock_init(&ctrl->lock);
+    INIT_LIST_HEAD(&ctrl->group_list);
+
+
 
 
     ret = ida_simple_get(&bafs_minor_ida, 1, BAFS_MINORS, GFP_KERNEL);
@@ -141,19 +148,8 @@ static void bafs_ctrl_pci_remove(struct pci_dev* pdev) {
 
     struct bafs_ctrl* ctrl = pci_get_drvdata(pdev);
     BAFS_CTRL_DEBUG("Started PCI remove for PCI device: %02x:%02x.%1x\n", pdev->bus->number, PCI_SLOT(pdev->devfn), PCI_FUNC(pdev->devfn));
+    kref_put(&ctrl->ref, __bafs_ctrl_release);
 
-    device_destroy(bafs_ctrl_class, MKDEV(MAJOR(bafs_major), ctrl->minor));
-
-    cdev_del(&ctrl->cdev);
-    ida_simple_remove(&bafs_ctrl_ida, ctrl->ctrl_id);
-    ida_simple_remove(&bafs_minor_ida, ctrl->minor);
-    pci_disable_device(pdev);
-    pci_release_region(pdev, 0);
-    pci_clear_master(pdev);
-    put_device(&pdev->dev);
-    pci_set_drvdata(pdev, NULL);
-
-    kfree(ctrl);
 
     BAFS_CTRL_DEBUG("Finished PCI remove for PCI device: %02x:%02x.%1x\n", pdev->bus->number, PCI_SLOT(pdev->devfn), PCI_FUNC(pdev->devfn));
 

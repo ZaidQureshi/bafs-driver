@@ -12,13 +12,15 @@
 #include "bafs_core_ioctl.h"
 #include "bafs_util.h"
 #include "bafs_types.h"
+#include "bafs_ctrl_release.h"
 
-static struct xarray bafs_mem_xa;
+extern struct xarray bafs_mem_xa;
 
+inline struct bafs_mem* bafs_mem_xa_load(const bafs_mem_hnd_t mem_id) {
+    return (struct bafs_mem*) xa_load(&bafs_mem_xa, mem_id);
+}
 
-
-
-int pin_bafs_cpu_mem(struct bafs_mem* mem, struct vm_area_struct* vma) {
+static int pin_bafs_cpu_mem(struct bafs_mem* mem, struct vm_area_struct* vma) {
 
     int ret = 0;
     int count;
@@ -71,16 +73,23 @@ out:
 }
 
 
-static void __bafs_mem_release(struct kref* ref) {
+
+
+
+static void __bafs_mem_release_cuda(struct kref* ref) {
     struct bafs_mem* mem;
 
-    mem = container_of(ref, struct bafs_mem, ref_count);
-    xa_erase(&bafs_mem_xa, mem->mem_id);
+    mem = container_of(ref, struct bafs_mem, ref);
+    if (mem) {
+        xa_erase(&bafs_mem_xa, mem->mem_id);
+        if (mem->cuda_page_table)
+            nvidia_p2p_free_page_table(mem->cuda_page_table);
 
-    kfree_rcu(mem, rcu_head);
+        kfree_rcu(mem, rh);
+    }
 }
 
-static void release_bafs_mem_cuda(void* data) {
+static void release_bafs_cuda_mem(void* data) {
     struct bafs_mem* mem;
 
     struct bafs_mem_dma* dma;
@@ -90,17 +99,23 @@ static void release_bafs_mem_cuda(void* data) {
 
 
     spin_lock(&mem->lock);
-    list_for_each_entry_safe(dma, next, &mem->dma_list, dma_list) {
-        nvidia_p2p_free_dma_mapping(dma->cuda_mapping);
 
-        kfree_rcu(dma, rcu_head);
-        kref_put(&mem->ref_count, __bafs_mem_release);
+    list_for_each_entry_safe(dma, next, &mem->dma_list, dma_list) {
+        if (dma->cuda_mapping)
+            nvidia_p2p_free_dma_mapping(dma->cuda_mapping);
+        dma->cuda_mapping = NULL;
+        list_del(&dma->dma_list);
+        kfree_rcu(dma, rh);
+        bafs_put_ctrl(dma->ctrl, __bafs_ctrl_release);
+        kref_put(&mem->ref, __bafs_mem_release_cuda);
     }
-    nvidia_p2p_free_page_table(mem->cuda_page_table);
+    if (mem->cuda_page_table)
+        nvidia_p2p_free_page_table(mem->cuda_page_table);
+    mem->cuda_page_table = NULL;
     spin_unlock(&mem->lock);
 
 
-    kref_put(&mem->ref_count, __bafs_mem_release);
+    kref_put(&mem->ref, __bafs_mem_release_cuda);
 
 
 }
@@ -109,10 +124,10 @@ int pin_bafs_cuda_mem(struct bafs_mem* mem, struct vm_area_struct* vma) {
 
     int      ret = 0;
     unsigned i;
-    unsigned map_size;
+    unsigned map_gran;
 
     ret = nvidia_p2p_get_pages(0, 0, mem->vaddr, mem->size, &mem->cuda_page_table,
-                               release_bafs_mem_cuda, mem);
+                               release_bafs_cuda_mem, mem);
     if(ret < 0) {
         goto out;
     }
@@ -163,13 +178,13 @@ int pin_bafs_cuda_mem(struct bafs_mem* mem, struct vm_area_struct* vma) {
 
     vma->vm_page_prot  = pgprot_noncached(vma->vm_page_prot);
     for (i             = 0; i < mem->n_pages; i++) {
-        map_size       = mem->page_size;
+        map_gran       = mem->page_size;
         if ((i*mem->page_size) > mem->size) {
-            map_size  -= ((i*mem->page_size) - mem->size);
+            map_gran  -= ((i*mem->page_size) - mem->size);
         }
         ret = io_remap_pfn_range(vma, mem->vaddr + (i*mem->page_size),
                                  __phys_to_pfn(mem->cuda_page_table->pages[i]->physical_address),
-                                 map_size, vma->vm_page_prot);
+                                 map_gran, vma->vm_page_prot);
         if (!ret) {
             BAFS_CORE_DEBUG("Failed to pin cuda memory due to failure to map cuda memory to process address space\n");
             goto out_delete_page_table;
@@ -186,6 +201,34 @@ out:
     return ret;
 }
 
+static void __bafs_mem_release(struct kref* ref) {
+    struct bafs_mem* mem;
+    unsigned i;
+
+    mem = container_of(ref, struct bafs_mem, ref);
+    if (mem) {
+        xa_erase(&bafs_mem_xa, mem->mem_id);
+        switch (mem->loc) {
+        case CPU:
+            if (mem->cpu_page_table) {
+                for (i = 0; i < mem->n_pages; i++)
+                    put_page(mem->cpu_page_table[i]);
+                kfree(mem->cpu_page_table);
+            }
+            break;
+        case CUDA:
+            if (mem->cuda_page_table)
+                nvidia_p2p_put_pages(0, 0, mem->vaddr, mem->cuda_page_table);
+            break;
+        default:
+            break;
+
+        }
+        kfree_rcu(mem, rh);
+    }
+}
+
+
 int pin_bafs_mem(struct vm_area_struct* vma) {
 
     int ret = 0;
@@ -195,6 +238,12 @@ int pin_bafs_mem(struct vm_area_struct* vma) {
 
     mem_id = vma->vm_pgoff;
     mem    = (struct bafs_mem*) xa_load(&bafs_mem_xa, mem_id);
+
+    if (!mem) {
+        ret = -EINVAL;
+        goto out;
+    }
+    kref_get(&mem->ref);
 
     mem->vaddr = vma->vm_start;
 
@@ -206,13 +255,13 @@ int pin_bafs_mem(struct vm_area_struct* vma) {
     case CPU:
         ret = pin_bafs_cpu_mem(mem, vma);
         if (!ret)
-            goto out;
+            goto out_release;
         break;
 
     case CUDA:
         ret = pin_bafs_cuda_mem(mem, vma);
         if (!ret)
-            goto out;
+            goto out_release;
         break;
 
     default:
@@ -221,7 +270,8 @@ int pin_bafs_mem(struct vm_area_struct* vma) {
         break;
     }
 
-
+out_release:
+    kref_put(&mem->ref, __bafs_mem_release);
 out:
     return ret;
 }
@@ -229,17 +279,18 @@ out:
 void init_bafs_mem(struct bafs_mem* mem, struct BAFS_CORE_IOC_REG_MEM_PARAMS* params) {
     spin_lock_init(&mem->lock);
     INIT_LIST_HEAD(&mem->dma_list);
-    kref_init(&mem->ref_count);
+    kref_init(&mem->ref);
 
     mem->size   = params->size;
     mem->loc    = params->loc;
     mem->mem_id = params->handle;
+
 }
 
 
 
 
-static long bafs_core_reg_mem(void __user* user_params) {
+long bafs_core_reg_mem(void __user* user_params) {
 
     long                                ret = 0;
     struct bafs_mem*                    mem;
@@ -286,34 +337,35 @@ out:
 }
 
 
-
 static void unmap_dma(struct bafs_mem_dma* dma) {
     unsigned         i;
-    unsigned map_size;
+    unsigned map_gran;
     struct bafs_mem* mem;
     struct pci_dev*  pdev;
 
     mem = dma->mem;
 
-    spin_lock(&dma->lock);
-    list_del(&dma->dma_list);
-
+    list_del_init(&dma->dma_list);
     switch (mem->loc) {
     case CPU:
-        for (i = 0; i < mem->n_pages; i++) {
-            map_size       = dma->map_size;
-            if ((i*dma->map_size) > mem->size) {
-                map_size  -= ((i*dma->map_size) - mem->size);
+        if (dma->addrs) {
+            for (i = 0; i < mem->n_pages; i++) {
+                map_gran       = dma->map_gran;
+                if ((i*dma->map_gran) > mem->size) {
+                    map_gran  -= ((i*dma->map_gran) - mem->size);
+                }
+                dma_unmap_single(dma->ctrl->dev, dma->addrs[i], map_gran, DMA_BIDIRECTIONAL);
             }
-            dma_unmap_single(dma->ctrl->dev, dma->addrs[i], map_size, DMA_BIDIRECTIONAL);
+
+            kfree(dma->addrs);
+            dma->addrs = NULL;
         }
-
-        kfree(dma->addrs);
-
-
         break;
     case CUDA:
-        nvidia_p2p_dma_unmap_pages(dma->ctrl->pdev, mem->cuda_page_table, dma->cuda_mapping);
+        if (dma->cuda_mapping && mem->cuda_page_table) {
+            nvidia_p2p_dma_unmap_pages(dma->ctrl->pdev, mem->cuda_page_table, dma->cuda_mapping);
+            //dma->cuda_mapping = NULL;
+        }
         break;
     default:
         break;
@@ -321,14 +373,15 @@ static void unmap_dma(struct bafs_mem_dma* dma) {
     }
 
     pdev = dma->ctrl->pdev;
-    bafs_put_ctrl(dma->ctrl);
-    put_device(&pdev->dev);
-    spin_unlock(&dma->lock);
+    bafs_put_ctrl(dma->ctrl, __bafs_ctrl_release);
+    kfree_rcu(dma, rh);
+    kref_put(&mem->ref, __bafs_mem_release);
+
+
 }
 
 static void bafs_mem_release(struct vm_area_struct* vma) {
 
-    unsigned             i;
     bafs_mem_hnd_t       mem_id;
     struct bafs_mem*     mem;
     struct bafs_mem_dma* dma;
@@ -346,27 +399,16 @@ static void bafs_mem_release(struct vm_area_struct* vma) {
     spin_lock(&mem->lock);
     list_for_each_entry_safe(dma, next, &mem->dma_list, dma_list) {
         unmap_dma(dma);
-        kfree_rcu(dma, rcu_head);
-        kref_put(&mem->ref_count, __bafs_mem_release);
-    }
-    switch (mem->loc) {
-    case CPU:
-        for (i = 0; i < mem->n_pages; i++)
-            put_page(mem->cpu_page_table[i]);
-        kfree(mem->cpu_page_table);
-        break;
-    case CUDA:
-        nvidia_p2p_put_pages(0, 0, mem->vaddr, mem->cuda_page_table);
-        break;
-    default:
-        break;
 
     }
+
 
     spin_unlock(&mem->lock);
 
 
-    kref_put(&mem->ref_count, __bafs_mem_release);
+    kref_put(&mem->ref, __bafs_mem_release);
+
+
 
 out:
     return;

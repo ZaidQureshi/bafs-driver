@@ -23,6 +23,12 @@ static const struct pci_device_id pci_dev_id_table[] = {
 MODULE_DEVICE_TABLE(pci, pci_dev_id_table);
 
 
+struct bafs_group {
+    spinlock_t lock;
+    struct list_head group_list;
+    struct kref ref;
+};
+
 struct bafs_ctrl {
 
     spinlock_t      lock;
@@ -32,27 +38,35 @@ struct bafs_ctrl {
     struct device*  device;
     int             minor;
     int             ctrl_id;
-
+    struct list_head group_list;
+    struct rcu_head          rh;
+    struct bafs_group* group;
+    struct kref ref;
 };
 
-static inline void bafs_get_ctrl(struct bafs_ctrl* ctrl) {
 
-    get_device(ctrl->device);
+
+static inline struct device* bafs_get_ctrl(struct bafs_ctrl* ctrl) {
+    struct device* dev;
+    dev = get_device(&ctrl->pdev->dev);
+    kref_get(&ctrl->ref);
+    return dev;
 
 }
 
-static inline void bafs_put_ctrl(struct bafs_ctrl* ctrl) {
+static inline void bafs_put_ctrl(struct bafs_ctrl* ctrl, void (*release)(struct kref *kref)) {
 
-    put_device(ctrl->device);
+    kref_put(&ctrl->ref, release);
+    put_device(&ctrl->pdev->dev);
 
 }
 
 struct bafs_mem {
 
     spinlock_t               lock;
-    struct rcu_head          rcu_head;
+    struct rcu_head          rh;
     struct list_head         dma_list;
-    struct kref              ref_count;
+    struct kref              ref;
     bafs_mem_hnd_t           mem_id;
     enum LOC                 loc;
     unsigned long            vaddr;
@@ -68,14 +82,15 @@ struct bafs_mem {
 
 struct bafs_mem_dma {
     spinlock_t                lock;
-    struct rcu_head           rcu_head;
+    struct rcu_head           rh;
     struct list_head          dma_list;
+    struct device*  dev;
     struct bafs_mem*          mem;
     struct bafs_ctrl*         ctrl;
     nvidia_p2p_dma_mapping_t* cuda_mapping;
     unsigned long             n_addrs;
     dma_addr_t*               addrs;
-    unsigned            map_size;
+    unsigned            map_gran;
 
 };
 
