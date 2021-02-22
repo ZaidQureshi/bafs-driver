@@ -23,14 +23,11 @@ MODULE_VERSION("0.1");
 #define BAFS_MINORS     (1U << MINORBITS)
 #define BAFS_CORE_MINOR 0
 
-
-
 dev_t bafs_major = {0};
 
 static struct class* bafs_core_class  = NULL;
-struct class* bafs_ctrl_class  = NULL;
-struct class* bafs_group_class = NULL;
-
+struct class*        bafs_ctrl_class  = NULL;
+struct class*        bafs_group_class = NULL;
 
 static struct cdev    bafs_core_cdev;
 static struct device* bafs_core_device = NULL;
@@ -76,13 +73,8 @@ static int bafs_ctrl_pci_probe(struct pci_dev* pdev, const struct pci_device_id*
         goto out_release_pci_region;
     }
 
-
-
-
     spin_lock_init(&ctrl->lock);
     INIT_LIST_HEAD(&ctrl->group_list);
-
-
 
 
     ret = ida_simple_get(&bafs_minor_ida, 1, BAFS_MINORS, GFP_KERNEL);
@@ -147,9 +139,10 @@ out:
 static void bafs_ctrl_pci_remove(struct pci_dev* pdev) {
 
     struct bafs_ctrl* ctrl = pci_get_drvdata(pdev);
-    BAFS_CTRL_DEBUG("Started PCI remove for PCI device: %02x:%02x.%1x\n", pdev->bus->number, PCI_SLOT(pdev->devfn), PCI_FUNC(pdev->devfn));
-    kref_put(&ctrl->ref, __bafs_ctrl_release);
 
+    BAFS_CTRL_DEBUG("Started PCI remove for PCI device: %02x:%02x.%1x\n", pdev->bus->number, PCI_SLOT(pdev->devfn), PCI_FUNC(pdev->devfn));
+
+    kref_put(&ctrl->ref, __bafs_ctrl_release);
 
     BAFS_CTRL_DEBUG("Finished PCI remove for PCI device: %02x:%02x.%1x\n", pdev->bus->number, PCI_SLOT(pdev->devfn), PCI_FUNC(pdev->devfn));
 
@@ -172,7 +165,7 @@ static struct pci_driver bafs_ctrl_pci_driver = {
 
 static int bafs_core_mmap(struct file* file, struct vm_area_struct* vma) {
 
-    int              ret = 0;
+    int ret = 0;
 
 
 
@@ -194,7 +187,7 @@ out:
 
 static long bafs_core_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
 
-    long                   ret = 0;
+    long ret = 0;
 
     void __user* argp = (void __user*) arg;
 
@@ -273,7 +266,8 @@ static int __init bafs_init(void) {
     //init dev objects
     cdev_init(&bafs_core_cdev, &bafs_core_fops);
     bafs_core_cdev.owner = THIS_MODULE;
-    ret                  = cdev_add(&bafs_core_cdev, MKDEV(MAJOR(bafs_major), BAFS_CORE_MINOR), 1);
+
+    ret = cdev_add(&bafs_core_cdev, MKDEV(MAJOR(bafs_major), BAFS_CORE_MINOR), 1);
     if (ret < 0) {
         BAFS_CORE_ERR("Failed to init core cdev \t err = %d\n", ret);
         goto out_destroy_group_class;
@@ -282,7 +276,7 @@ static int __init bafs_init(void) {
     //create dev
     bafs_core_device = device_create(bafs_core_class, NULL, MKDEV(MAJOR(bafs_major), BAFS_CORE_MINOR), NULL, BAFS_CORE_DEVICE_NAME);
     if(IS_ERR(bafs_core_device)) {
-        ret                                                = PTR_ERR(bafs_core_device);
+        ret          = PTR_ERR(bafs_core_device);
         BAFS_CORE_ERR("Failed to create core device \t err = %d\n", ret);
         goto out_delete_core_cdev;
     }

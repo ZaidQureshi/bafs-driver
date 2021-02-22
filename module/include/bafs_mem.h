@@ -203,7 +203,7 @@ out:
 
 static void __bafs_mem_release(struct kref* ref) {
     struct bafs_mem* mem;
-    unsigned i;
+    unsigned         i;
 
     mem = container_of(ref, struct bafs_mem, ref);
     if (mem) {
@@ -292,7 +292,8 @@ void init_bafs_mem(struct bafs_mem* mem, struct BAFS_CORE_IOC_REG_MEM_PARAMS* pa
 
 long bafs_core_reg_mem(void __user* user_params) {
 
-    long                                ret = 0;
+    long ret = 0;
+
     struct bafs_mem*                    mem;
     struct BAFS_CORE_IOC_REG_MEM_PARAMS params;
 
@@ -303,7 +304,7 @@ long bafs_core_reg_mem(void __user* user_params) {
     }
 
     mem     = kzalloc(sizeof(*mem), GFP_KERNEL);
-    if (!mem){
+    if (!mem) {
         ret = -ENOMEM;
         BAFS_CORE_ERR("Failed to allocate memory for bafs_mem\n");
         goto out;
@@ -338,8 +339,8 @@ out:
 
 
 static void unmap_dma(struct bafs_mem_dma* dma) {
-    unsigned         i;
-    unsigned map_gran;
+
+    unsigned         map_gran, i;
     struct bafs_mem* mem;
     struct pci_dev*  pdev;
 
@@ -350,9 +351,9 @@ static void unmap_dma(struct bafs_mem_dma* dma) {
     case CPU:
         if (dma->addrs) {
             for (i = 0; i < mem->n_pages; i++) {
-                map_gran       = dma->map_gran;
+                map_gran      = dma->map_gran;
                 if ((i*dma->map_gran) > mem->size) {
-                    map_gran  -= ((i*dma->map_gran) - mem->size);
+                    map_gran -= ((i*dma->map_gran) - mem->size);
                 }
                 dma_unmap_single(dma->ctrl->dev, dma->addrs[i], map_gran, DMA_BIDIRECTIONAL);
             }

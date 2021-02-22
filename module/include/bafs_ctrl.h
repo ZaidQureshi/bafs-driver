@@ -57,9 +57,9 @@ static int __bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, const bafs_mem_hnd_t 
             goto out_delete_mem;
         }
         for (i = 0; i < mem->n_pages; i++) {
-            map_gran = dma->map_gran;
+            map_gran      = dma->map_gran;
             if ((i*dma->map_gran) > mem->size) {
-                map_gran  -= ((i*dma->map_gran) - mem->size);
+                map_gran -= ((i*dma->map_gran) - mem->size);
             }
             dma->addrs[i] = dma_map_single(dma->ctrl->dev, page_to_virt(mem->cpu_page_table[i]), map_gran, DMA_BIDIRECTIONAL);
             if (dma_mapping_error(dma->ctrl->dev, dma->addrs[i])) {
@@ -71,7 +71,7 @@ static int __bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, const bafs_mem_hnd_t 
 
         break;
     case CUDA:
-        ret      = nvidia_p2p_dma_map_pages(ctrl->pdev, mem->cuda_page_table, &dma->cuda_mapping);
+        ret = nvidia_p2p_dma_map_pages(ctrl->pdev, mem->cuda_page_table, &dma->cuda_mapping);
         if (ret != 0) {
             goto out_delete_mem;
         }
@@ -118,8 +118,9 @@ static void __bafs_ctrl_dma_unmap_mem(struct bafs_mem_dma* dma) {
 
 static long bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, void __user* user_params) {
 
-    long                 ret = 0;
-    struct bafs_mem_dma* dma;
+    long ret = 0;
+
+    struct bafs_mem_dma*                    dma;
     struct BAFS_CTRL_IOC_DMA_MAP_MEM_PARAMS params;
 
     if (copy_from_user(&params, user_params, sizeof(params))) {
@@ -155,16 +156,19 @@ static long bafs_ctrl_ioctl(struct file* file, unsigned int cmd, unsigned long a
 
     void __user*      argp = (void __user*) arg;
     struct bafs_ctrl* ctrl = file->private_data;
+
     if (!ctrl) {
-        ret                = -EINVAL;
+        ret = -EINVAL;
         goto out;
     }
     bafs_get_ctrl(ctrl);
 
     BAFS_CTRL_DEBUG("IOCTL called \t cmd = %u\n", cmd);
 
-    if (_IOC_TYPE(cmd)                           != BAFS_CTRL_IOCTL) {
-        ret                                       = -EINVAL;
+    if (_IOC_TYPE(cmd) != BAFS_CTRL_IOCTL) {
+
+        ret = -EINVAL;
+
         BAFS_CTRL_ERR("Invalid IOCTL commad type  = %u\n", _IOC_TYPE(cmd));
         goto out_release_ctrl;
     }
@@ -178,7 +182,7 @@ static long bafs_ctrl_ioctl(struct file* file, unsigned int cmd, unsigned long a
         }
         break;
     default:
-        ret                                     = -EINVAL;
+        ret = -EINVAL;
         BAFS_CTRL_ERR("Invalid IOCTL cmd \t cmd = %u\n", cmd);
         goto out_release_ctrl;
         break;
@@ -193,7 +197,7 @@ out:
 
 static int bafs_ctrl_open(struct inode* inode, struct file* file) {
 
-    int ret = 0;
+    int               ret = 0;
     struct bafs_ctrl* ctrl = container_of(inode->i_cdev, struct bafs_ctrl, cdev);
 
     if (!ctrl) {
