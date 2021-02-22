@@ -20,6 +20,9 @@ inline struct bafs_mem* bafs_mem_xa_load(const bafs_mem_hnd_t mem_id) {
     return (struct bafs_mem*) xa_load(&bafs_mem_xa, mem_id);
 }
 
+
+
+
 static int pin_bafs_cpu_mem(struct bafs_mem* mem, struct vm_area_struct* vma) {
 
     int ret = 0;
@@ -229,52 +232,7 @@ static void __bafs_mem_release(struct kref* ref) {
 }
 
 
-int pin_bafs_mem(struct vm_area_struct* vma) {
 
-    int ret = 0;
-
-    struct bafs_mem* mem;
-    bafs_mem_hnd_t   mem_id;
-
-    mem_id = vma->vm_pgoff;
-    mem    = (struct bafs_mem*) xa_load(&bafs_mem_xa, mem_id);
-
-    if (!mem) {
-        ret = -EINVAL;
-        goto out;
-    }
-    kref_get(&mem->ref);
-
-    mem->vaddr = vma->vm_start;
-
-    vma->vm_flags |= VM_DONTCOPY;
-    vma->vm_flags |= VM_DONTEXPAND;
-
-    switch (mem->loc) {
-
-    case CPU:
-        ret = pin_bafs_cpu_mem(mem, vma);
-        if (!ret)
-            goto out_release;
-        break;
-
-    case CUDA:
-        ret = pin_bafs_cuda_mem(mem, vma);
-        if (!ret)
-            goto out_release;
-        break;
-
-    default:
-        ret = -EINVAL;
-        goto out;
-        break;
-    }
-
-out_release:
-    kref_put(&mem->ref, __bafs_mem_release);
-out:
-    return ret;
-}
 
 void init_bafs_mem(struct bafs_mem* mem, struct BAFS_CORE_IOC_REG_MEM_PARAMS* params) {
     spin_lock_init(&mem->lock);
@@ -415,12 +373,61 @@ out:
     return;
 }
 
-
-static const struct vm_operations_struct bafs_mem_fops = {
+static const struct vm_operations_struct bafs_mem_ops = {
 
     .close = bafs_mem_release,
 
 };
+
+
+int pin_bafs_mem(struct vm_area_struct* vma) {
+
+    int ret = 0;
+
+    struct bafs_mem* mem;
+    bafs_mem_hnd_t   mem_id;
+
+    mem_id = vma->vm_pgoff;
+    mem    = (struct bafs_mem*) xa_load(&bafs_mem_xa, mem_id);
+
+    if (!mem) {
+        ret = -EINVAL;
+        goto out;
+    }
+    kref_get(&mem->ref);
+
+    mem->vaddr = vma->vm_start;
+
+    vma->vm_flags |= VM_DONTCOPY;
+    vma->vm_flags |= VM_DONTEXPAND;
+
+    switch (mem->loc) {
+
+    case CPU:
+        ret = pin_bafs_cpu_mem(mem, vma);
+        if (!ret)
+            goto out_release;
+        break;
+
+    case CUDA:
+        ret = pin_bafs_cuda_mem(mem, vma);
+        if (!ret)
+            goto out_release;
+        break;
+
+    default:
+        ret = -EINVAL;
+        goto out;
+        break;
+    }
+
+    vma->vm_ops = &bafs_mem_ops;
+
+out_release:
+    kref_put(&mem->ref, __bafs_mem_release);
+out:
+    return ret;
+}
 
 
 
