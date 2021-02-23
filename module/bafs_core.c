@@ -12,7 +12,7 @@
 #include <bafs_core_ioctl.h>
 #include <bafs_ctrl_ioctl.h>
 #include <bafs_util.h>
-#include <bafs_ctrl_release.h>
+#include <bafs_release.h>
 
 
 MODULE_LICENSE("GPL");
@@ -34,9 +34,8 @@ static struct device* bafs_core_device = NULL;
 
 DEFINE_IDA(bafs_minor_ida);
 DEFINE_IDA(bafs_ctrl_ida);
-//static DEFINE_IDA(bafs_group_ida);
+DEFINE_IDA(bafs_group_ida);
 
-struct xarray bafs_mem_xa = {0};
 
 
 static int bafs_ctrl_pci_probe(struct pci_dev* pdev, const struct pci_device_id* id) {
@@ -166,10 +165,16 @@ static struct pci_driver bafs_ctrl_pci_driver = {
 static int bafs_core_mmap(struct file* file, struct vm_area_struct* vma) {
 
     int ret = 0;
+    struct bafs_core_ctx* ctx;
+
+    ctx = (struct bafs_core_ctx*) file->private_data;
+    if (!ctx) {
+        ret = -EFAULT;
+        goto out;
+    }
 
 
-
-    ret = pin_bafs_mem(vma);
+    ret = pin_bafs_mem(vma, ctx);
     if (ret < 0) {
         BAFS_CORE_ERR("Failed to mmap memory \t err = %d\n", ret);
         goto out;
@@ -189,6 +194,7 @@ static long bafs_core_ioctl(struct file* file, unsigned int cmd, unsigned long a
 
     long ret = 0;
 
+    struct bafs_core_ctx* ctx;
     void __user* argp = (void __user*) arg;
 
 
@@ -202,7 +208,12 @@ static long bafs_core_ioctl(struct file* file, unsigned int cmd, unsigned long a
 
     switch (cmd) {
     case BAFS_CORE_IOC_REG_MEM:
-        ret = bafs_core_reg_mem(argp);
+        ctx = (struct bafs_core_ctx*) file->private_data;
+        if (!ctx) {
+            ret = -EFAULT;
+            goto out;
+        }
+        ret = bafs_core_reg_mem(argp, ctx);
         if (ret < 0) {
             BAFS_CORE_ERR("IOCTL to register memory failed\n");
             goto out;
@@ -215,6 +226,65 @@ static long bafs_core_ioctl(struct file* file, unsigned int cmd, unsigned long a
         break;
     }
 
+        ret = 0;
+    return ret;
+out:
+    return ret;
+}
+
+static int bafs_core_open(struct inode* inode, struct file* file) {
+    int ret;
+    struct bafs_core_ctx* ctx;
+
+    ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+    if (!ctx) {
+        ret = -ENOMEM;
+        goto out;
+    }
+
+    xa_init(&ctx->bafs_mem_xa);
+    spin_lock_init(&ctx->lock);
+    INIT_LIST_HEAD(&ctx->mem_list);
+    kref_init(&ctx->ref);
+    file->private_data = ctx;
+
+    ret = 0;
+    return ret;
+out:
+    return ret;
+}
+
+static int bafs_core_release(struct inode* inode, struct file* file) {
+    int ret = 0;
+    struct bafs_core_ctx* ctx;
+    struct bafs_mem* mem;
+    struct bafs_mem* next;
+
+    ctx = (struct bafs_core_ctx*) file->private_data;
+    if (!ctx) {
+        ret = -EINVAL;
+        goto out;
+    }
+
+    spin_lock(&ctx->lock);
+    list_for_each_entry_safe(mem, next, &ctx->mem_list, mem_list) {
+        spin_lock(&mem->lock);
+        if (mem->state == STALE) {
+            xa_erase(&ctx->bafs_mem_xa, mem->mem_id);
+            spin_unlock(&mem->lock);
+            kfree_rcu(mem, rh);
+            kref_put(&ctx->ref, __bafs_core_ctx_release);
+        }
+        else {
+            spin_unlock(&mem->lock);
+        }
+
+
+    }
+
+    spin_unlock(&ctx->lock);
+
+    kref_put(&ctx->ref, __bafs_core_ctx_release);
     return ret;
 out:
     return ret;
@@ -223,8 +293,10 @@ out:
 static const struct file_operations bafs_core_fops = {
 
     .owner          = THIS_MODULE,
+    .open           = bafs_core_open,
     .mmap           = bafs_core_mmap,
     .unlocked_ioctl = bafs_core_ioctl,
+    .release = bafs_core_release,
 
 };
 
@@ -281,7 +353,7 @@ static int __init bafs_init(void) {
         goto out_delete_core_cdev;
     }
 
-    xa_init(&bafs_mem_xa);
+
     BAFS_CORE_INFO("Initialized core device: %s\n", BAFS_CORE_DEVICE_NAME);
 
     ret = pci_register_driver(&bafs_ctrl_pci_driver);
@@ -315,7 +387,7 @@ static void __exit bafs_exit(void) {
     BAFS_CORE_DEBUG("Start unloading module\n");
 
     pci_unregister_driver(&bafs_ctrl_pci_driver);
-    xa_destroy(&bafs_mem_xa);
+
 
     device_destroy(bafs_core_class, MKDEV(MAJOR(bafs_major), BAFS_CORE_MINOR));
     cdev_del(&bafs_core_cdev);

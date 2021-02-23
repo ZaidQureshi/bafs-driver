@@ -1,5 +1,5 @@
-#ifndef __BAFS_CTRL_RELEASE_H__
-#define __BAFS_CTRL_RELEASE_H__
+#ifndef __BAFS_RELEASE_H__
+#define __BAFS_RELEASE_H__
 
 
 #include "bafs_util.h"
@@ -44,5 +44,18 @@ static void __bafs_ctrl_release(struct kref* ref) {
     }
 }
 
+
+static void __bafs_core_ctx_release(struct kref* ref) {
+    struct bafs_core_ctx* ctx;
+
+    ctx = container_of(ref, struct bafs_core_ctx, ref);
+
+    if (ctx) {
+        xa_destroy(&ctx->bafs_mem_xa);
+        kfree(ctx);
+
+    }
+
+}
 
 #endif // __BAFS_CTRL_RELEASE_H__

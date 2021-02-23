@@ -22,11 +22,20 @@ static const struct pci_device_id pci_dev_id_table[] = {
 };
 MODULE_DEVICE_TABLE(pci, pci_dev_id_table);
 
+struct bafs_core_ctx {
+    spinlock_t lock;
+    struct xarray bafs_mem_xa;
+    struct list_head mem_list;
+    struct kref ref;
+};
+
 
 struct bafs_group {
     spinlock_t lock;
     struct list_head group_list;
     struct kref ref;
+    bafs_group_hnd_t group_id;
+
 };
 
 struct bafs_ctrl {
@@ -61,14 +70,22 @@ static inline void bafs_put_ctrl(struct bafs_ctrl* ctrl, void (*release)(struct 
 
 }
 
-struct bafs_mem {
+enum STATE {
+    STALE,
+    LIVE,
+    DEAD
+};
 
+struct bafs_mem {
+    struct bafs_core_ctx* ctx;
     spinlock_t               lock;
     struct rcu_head          rh;
+    struct list_head         mem_list;
     struct list_head         dma_list;
     struct kref              ref;
     bafs_mem_hnd_t           mem_id;
     enum LOC                 loc;
+    enum STATE               state;
     unsigned long            vaddr;
     unsigned long            size;
     unsigned long            page_size;

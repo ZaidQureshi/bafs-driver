@@ -9,7 +9,7 @@
 
 struct BAFS_CTRL_IOC_DMA_MAP_MEM_PARAMS {
     //in
-    bafs_mem_hnd_t handle;
+    unsigned long handle;
     //out
     uint64_t*      dma_addrs;
 

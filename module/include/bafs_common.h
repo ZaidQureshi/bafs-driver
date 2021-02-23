@@ -1,7 +1,8 @@
 #ifndef __BAFS_COMMON_H__
 #define __BAFS_COMMON_H__
 
-typedef u32 bafs_mem_hnd_t;
+typedef uint32_t bafs_mem_hnd_t;
+typedef uint32_t bafs_group_hnd_t;
 
 enum LOC {
     CPU,

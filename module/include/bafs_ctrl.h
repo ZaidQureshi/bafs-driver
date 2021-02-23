@@ -5,7 +5,7 @@
 #include "bafs_mem.h"
 #include "bafs_ctrl_ioctl.h"
 #include "bafs_types.h"
-#include "bafs_ctrl_release.h"
+#include "bafs_release.h"
 
 
 
@@ -14,15 +14,22 @@ static int __bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, struct BAFS_CTRL_IOC_
     int ret = 0;
 
     struct bafs_mem*     mem;
+    struct vm_area_struct* vma;
     struct bafs_mem_dma* dma;
     unsigned             map_gran;
     int                  i = 0;
 
-    mem     = bafs_mem_xa_load(params->handle);
+    vma = find_vma(current->mm, params->handle);
+    if (!vma) {
+        ret = -EINVAL;
+        goto out;
+    }
+    mem     = (struct bafs_mem*) vma->vm_private_data;
     if (!mem) {
         ret = -EINVAL;
         goto out;
     }
+
 
     *dma_   = kzalloc(sizeof(*dma), GFP_KERNEL);
     if (!(*dma_)){
@@ -34,6 +41,7 @@ static int __bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, struct BAFS_CTRL_IOC_
     dma = *dma_;
 
     kref_get(&mem->ref);
+
     dma->dev = bafs_get_ctrl(ctrl);
 
     INIT_LIST_HEAD(&dma->dma_list);
@@ -131,6 +139,7 @@ static void __bafs_ctrl_dma_unmap_mem(struct bafs_mem_dma* dma) {
     spin_lock(&mem->lock);
     unmap_dma(dma);
     spin_unlock(&mem->lock);
+    kref_put(&mem->ref, __bafs_mem_release);
 
 }
 

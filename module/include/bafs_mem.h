@@ -12,14 +12,7 @@
 #include "bafs_core_ioctl.h"
 #include "bafs_util.h"
 #include "bafs_types.h"
-#include "bafs_ctrl_release.h"
-
-extern struct xarray bafs_mem_xa;
-
-inline struct bafs_mem* bafs_mem_xa_load(const bafs_mem_hnd_t mem_id) {
-    return (struct bafs_mem*) xa_load(&bafs_mem_xa, mem_id);
-}
-
+#include "bafs_release.h"
 
 
 
@@ -81,14 +74,22 @@ out:
 
 static void __bafs_mem_release_cuda(struct kref* ref) {
     struct bafs_mem* mem;
+    struct bafs_core_ctx* ctx;
 
     mem = container_of(ref, struct bafs_mem, ref);
     if (mem) {
-        xa_erase(&bafs_mem_xa, mem->mem_id);
+        ctx = mem->ctx;
+        spin_lock(&ctx->lock);
+        list_del(&mem->mem_list);
+        xa_erase(&ctx->bafs_mem_xa, mem->mem_id);
+        spin_unlock(&ctx->lock);
+
+
         if (mem->cuda_page_table)
             nvidia_p2p_free_page_table(mem->cuda_page_table);
 
         kfree_rcu(mem, rh);
+        kref_put(&ctx->ref, __bafs_core_ctx_release);
     }
 }
 
@@ -115,6 +116,7 @@ static void release_bafs_cuda_mem(void* data) {
     if (mem->cuda_page_table)
         nvidia_p2p_free_page_table(mem->cuda_page_table);
     mem->cuda_page_table = NULL;
+    mem->state = DEAD;
     spin_unlock(&mem->lock);
 
 
@@ -206,11 +208,19 @@ out:
 
 static void __bafs_mem_release(struct kref* ref) {
     struct bafs_mem* mem;
+    struct bafs_core_ctx* ctx;
     unsigned         i;
 
     mem = container_of(ref, struct bafs_mem, ref);
     if (mem) {
-        xa_erase(&bafs_mem_xa, mem->mem_id);
+        ctx = mem->ctx;
+        spin_lock(&ctx->lock);
+        list_del(&mem->mem_list);
+        xa_erase(&ctx->bafs_mem_xa, mem->mem_id);
+        spin_unlock(&ctx->lock);
+
+        spin_lock(&mem->lock);
+
         switch (mem->loc) {
         case CPU:
             if (mem->cpu_page_table) {
@@ -227,28 +237,22 @@ static void __bafs_mem_release(struct kref* ref) {
             break;
 
         }
+        mem->state = DEAD;
+        spin_unlock(&mem->lock);
         kfree_rcu(mem, rh);
+
+        kref_put(&ctx->ref, __bafs_core_ctx_release);
     }
 }
 
 
 
 
-void init_bafs_mem(struct bafs_mem* mem, struct BAFS_CORE_IOC_REG_MEM_PARAMS* params) {
-    spin_lock_init(&mem->lock);
-    INIT_LIST_HEAD(&mem->dma_list);
-    kref_init(&mem->ref);
-
-    mem->size   = params->size;
-    mem->loc    = params->loc;
-    mem->mem_id = params->handle;
-
-}
 
 
 
 
-long bafs_core_reg_mem(void __user* user_params) {
+long bafs_core_reg_mem(void __user* user_params, struct bafs_core_ctx* ctx) {
 
     long ret = 0;
 
@@ -268,14 +272,26 @@ long bafs_core_reg_mem(void __user* user_params) {
         goto out;
     }
 
+    kref_get(&ctx->ref);
+    mem->state  = STALE;
 
+    mem->size   = params.size;
+    mem->loc    = params.loc;
+    mem->ctx = ctx;
+    INIT_LIST_HEAD(&mem->mem_list);
 
-    ret     = xa_alloc(&bafs_mem_xa, &(params.handle), mem, xa_limit_32b, GFP_KERNEL);
+    spin_lock(&ctx->lock);
+    ret     = xa_alloc(&ctx->bafs_mem_xa, &(params.handle), mem, xa_limit_32b, GFP_KERNEL);
     if (ret < 0) {
         ret = -ENOMEM;
         BAFS_CORE_ERR("Failed to allocate entry in bafs_mem_xa\n");
         goto out_delete_mem;
     }
+    mem->mem_id = params.handle;
+
+    list_add(&mem->mem_list, &ctx->mem_list);
+    spin_unlock(&ctx->lock);
+
 
     if (copy_to_user(user_params, &params, sizeof(params))) {
         ret = -EFAULT;
@@ -283,13 +299,20 @@ long bafs_core_reg_mem(void __user* user_params) {
         goto out_erase_xa_entry;
     }
 
-    init_bafs_mem(mem, &params);
 
+    ret = 0;
     return ret;
 
 out_erase_xa_entry:
-    xa_erase(&bafs_mem_xa, params.handle);
+
+
+    spin_lock(&ctx->lock);
+    list_del_init(&mem->mem_list);
+    xa_erase(&ctx->bafs_mem_xa, params.handle);
+
 out_delete_mem:
+    spin_unlock(&ctx->lock);
+    kref_put(&ctx->ref, __bafs_core_ctx_release);
     kfree(mem);
 out:
     return ret;
@@ -303,8 +326,7 @@ static void unmap_dma(struct bafs_mem_dma* dma) {
     struct pci_dev*  pdev;
 
     mem = dma->mem;
-
-    list_del_init(&dma->dma_list);
+    list_del(&dma->dma_list);
     switch (mem->loc) {
     case CPU:
         if (dma->addrs) {
@@ -334,38 +356,42 @@ static void unmap_dma(struct bafs_mem_dma* dma) {
     pdev = dma->ctrl->pdev;
     bafs_put_ctrl(dma->ctrl, __bafs_ctrl_release);
     kfree_rcu(dma, rh);
-    kref_put(&mem->ref, __bafs_mem_release);
+
 
 
 }
 
 static void bafs_mem_release(struct vm_area_struct* vma) {
 
-    bafs_mem_hnd_t       mem_id;
     struct bafs_mem*     mem;
+    struct bafs_core_ctx* ctx;
     struct bafs_mem_dma* dma;
     struct bafs_mem_dma* next;
 
 
-    //mem  = (struct bafs_mem*) vma->vm_private_data;
-    mem_id = vma->vm_pgoff;
-    mem    = (struct bafs_mem*) xa_load(&bafs_mem_xa, mem_id);
-
-    if (mem == NULL) {
+    mem     = (struct bafs_mem*) vma->vm_private_data;
+    if (!mem) {
         goto out;
     }
+
+    ctx = mem->ctx;
+    kref_get(&ctx->ref);
 
     spin_lock(&mem->lock);
     list_for_each_entry_safe(dma, next, &mem->dma_list, dma_list) {
         unmap_dma(dma);
-
+        kref_put(&mem->ref, __bafs_mem_release);
     }
-
+    mem->state = DEAD;
 
     spin_unlock(&mem->lock);
 
-
+    vma->vm_private_data = NULL;
     kref_put(&mem->ref, __bafs_mem_release);
+
+
+
+    kref_put(&ctx->ref, __bafs_core_ctx_release);
 
 
 
@@ -380,7 +406,7 @@ static const struct vm_operations_struct bafs_mem_ops = {
 };
 
 
-int pin_bafs_mem(struct vm_area_struct* vma) {
+int pin_bafs_mem(struct vm_area_struct* vma, struct bafs_core_ctx* ctx) {
 
     int ret = 0;
 
@@ -388,13 +414,18 @@ int pin_bafs_mem(struct vm_area_struct* vma) {
     bafs_mem_hnd_t   mem_id;
 
     mem_id = vma->vm_pgoff;
-    mem    = (struct bafs_mem*) xa_load(&bafs_mem_xa, mem_id);
+    kref_get(&ctx->ref);
+    spin_lock(&ctx->lock);
+    mem    = (struct bafs_mem*) xa_load(&ctx->bafs_mem_xa, mem_id);
+    spin_unlock(&ctx->lock);
+    kref_put(&ctx->ref, __bafs_core_ctx_release);
 
     if (!mem) {
         ret = -EINVAL;
         goto out;
     }
     kref_get(&mem->ref);
+    spin_lock(&mem->lock);
 
     mem->vaddr = vma->vm_start;
 
@@ -416,14 +447,19 @@ int pin_bafs_mem(struct vm_area_struct* vma) {
         break;
 
     default:
+        spin_lock(&mem->lock);
         ret = -EINVAL;
-        goto out;
+        return ret;
         break;
     }
 
     vma->vm_ops = &bafs_mem_ops;
+    mem->state = LIVE;
+    vma->vm_private_data = mem;
 
+    ret = 0;
 out_release:
+    spin_unlock(&mem->lock);
     kref_put(&mem->ref, __bafs_mem_release);
 out:
     return ret;
