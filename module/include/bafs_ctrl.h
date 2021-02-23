@@ -19,7 +19,7 @@ static int __bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, struct BAFS_CTRL_IOC_
     unsigned             map_gran;
     int                  i = 0;
 
-    vma = find_vma(current->mm, params->handle);
+    vma = find_vma(current->mm, params->vaddr);
     if (!vma) {
         ret = -EINVAL;
         goto out;
@@ -216,7 +216,8 @@ static long bafs_ctrl_ioctl(struct file* file, unsigned int cmd, unsigned long a
         goto out_release_ctrl;
         break;
     }
-    return ret;
+
+    ret = 0;
 out_release_ctrl:
     bafs_put_ctrl(ctrl, __bafs_ctrl_release);
 out:

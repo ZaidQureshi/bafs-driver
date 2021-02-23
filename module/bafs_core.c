@@ -52,8 +52,13 @@ static int bafs_ctrl_pci_probe(struct pci_dev* pdev, const struct pci_device_id*
         goto out;
     }
 
-    ctrl->dev  = get_device(&pdev->dev);
+    spin_lock_init(&ctrl->lock);
+    INIT_LIST_HEAD(&ctrl->group_list);
+
+
     ctrl->pdev = pdev;
+    ctrl->dev = get_device(&ctrl->pdev->dev);
+    kref_init(&ctrl->ref);
 
     pci_set_master(pdev);
     pci_set_drvdata(pdev, ctrl);
@@ -72,8 +77,6 @@ static int bafs_ctrl_pci_probe(struct pci_dev* pdev, const struct pci_device_id*
         goto out_release_pci_region;
     }
 
-    spin_lock_init(&ctrl->lock);
-    INIT_LIST_HEAD(&ctrl->group_list);
 
 
     ret = ida_simple_get(&bafs_minor_ida, 1, BAFS_MINORS, GFP_KERNEL);
@@ -105,6 +108,8 @@ static int bafs_ctrl_pci_probe(struct pci_dev* pdev, const struct pci_device_id*
         goto out_delete_device_cdev;
     }
 
+
+
     BAFS_CTRL_INFO("Created controller device %s for PCI device: %02x:%02x.%1x\n",
                    dev_name(ctrl->device), pdev->bus->number, PCI_SLOT(pdev->devfn), PCI_FUNC(pdev->devfn));
 
@@ -127,7 +132,7 @@ out_clear_pci_drvdata:
     pci_set_drvdata(pdev, NULL);
 //out_clear_pci_master:
     pci_clear_master(pdev);
-    put_device(&pdev->dev);
+    kref_put(&ctrl->ref, __bafs_ctrl_release);
 //out_delete_ctrl:
     kfree(ctrl);
 out:
@@ -141,7 +146,7 @@ static void bafs_ctrl_pci_remove(struct pci_dev* pdev) {
 
     BAFS_CTRL_DEBUG("Started PCI remove for PCI device: %02x:%02x.%1x\n", pdev->bus->number, PCI_SLOT(pdev->devfn), PCI_FUNC(pdev->devfn));
 
-    kref_put(&ctrl->ref, __bafs_ctrl_release);
+    bafs_put_ctrl(ctrl, __bafs_ctrl_release);
 
     BAFS_CTRL_DEBUG("Finished PCI remove for PCI device: %02x:%02x.%1x\n", pdev->bus->number, PCI_SLOT(pdev->devfn), PCI_FUNC(pdev->devfn));
 
@@ -180,8 +185,6 @@ static int bafs_core_mmap(struct file* file, struct vm_area_struct* vma) {
         goto out;
     }
 
-    //vma->vm_private_data = mem;
-
     return ret;
 
 
@@ -219,6 +222,7 @@ static long bafs_core_ioctl(struct file* file, unsigned int cmd, unsigned long a
             goto out;
         }
         break;
+
     default:
         ret = -EINVAL;
         BAFS_CORE_ERR("Invalid IOCTL cmd \t cmd = %u\n", cmd);

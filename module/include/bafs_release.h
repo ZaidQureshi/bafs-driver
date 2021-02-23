@@ -18,6 +18,7 @@ static void __bafs_ctrl_release(struct kref* ref) {
     struct bafs_group* group;
 
     ctrl = container_of(ref, struct bafs_ctrl, ref);
+    BAFS_CTRL_DEBUG("Removing PCI remove \t ctrl: %p\n", ctrl);
     if (ctrl) {
         group = ctrl->group;
         if (group) {
@@ -34,11 +35,11 @@ static void __bafs_ctrl_release(struct kref* ref) {
         pci_disable_device(ctrl->pdev);
         pci_release_region(ctrl->pdev, 0);
         pci_clear_master(ctrl->pdev);
-
-        pci_set_drvdata(ctrl->pdev, NULL);
+        put_device(&ctrl->pdev->dev);
+        BAFS_CTRL_DEBUG("Removed PCI remove \t ctrl: %p\n", ctrl);
 
         kfree_rcu(ctrl, rh);
-        kref_put(&group->ref, NULL);
+        //kref_put(&group->ref, NULL);
 
 
     }

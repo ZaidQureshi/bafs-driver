@@ -58,15 +58,17 @@ struct bafs_ctrl {
 static inline struct device* bafs_get_ctrl(struct bafs_ctrl* ctrl) {
     struct device* dev;
     dev = get_device(&ctrl->pdev->dev);
+    BAFS_CTRL_DEBUG("In bafs_get_ctrl: %u \t kref_bef: %u\n", ctrl->ctrl_id, kref_read(&ctrl->ref));
     kref_get(&ctrl->ref);
+    BAFS_CTRL_DEBUG("In bafs_get_ctrl: %u \t kref_bef: %u\n", ctrl->ctrl_id, kref_read(&ctrl->ref));
     return dev;
 
 }
 
 static inline void bafs_put_ctrl(struct bafs_ctrl* ctrl, void (*release)(struct kref *kref)) {
-
+    BAFS_CTRL_DEBUG("In bafs_put_ctrl: %u \t kref_bef: %u\n", ctrl->ctrl_id, kref_read(&ctrl->ref));
     kref_put(&ctrl->ref, release);
-    put_device(&ctrl->pdev->dev);
+    BAFS_CTRL_DEBUG("In bafs_put_ctrl: %u \t kref_aft: %u\n", ctrl->ctrl_id, kref_read(&ctrl->ref));
 
 }
 

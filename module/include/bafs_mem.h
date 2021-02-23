@@ -354,9 +354,9 @@ static void unmap_dma(struct bafs_mem_dma* dma) {
     }
 
     pdev = dma->ctrl->pdev;
-    bafs_put_ctrl(dma->ctrl, __bafs_ctrl_release);
-    kfree_rcu(dma, rh);
 
+    kfree_rcu(dma, rh);
+    bafs_put_ctrl(dma->ctrl, __bafs_ctrl_release);
 
 
 }

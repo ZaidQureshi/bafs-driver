@@ -19,7 +19,7 @@
     printk(LEVEL DEV_CLASS ": "  FMT, ##__VA_ARGS__)
 
 
-static int debug = 0;
+static int debug = 1;
 #define BAFS_DEBUG(DEV_CLASS, FMT, ...)         \
     do {                                        \
         if (debug)                              \
