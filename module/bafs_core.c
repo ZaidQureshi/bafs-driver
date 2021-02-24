@@ -183,7 +183,7 @@ long bafs_core_create_group(void __user* user_params) {
     }
 
     params.n_ctrls = params_.n_ctrls;
-    params.ctrls = kzalloc(params.n_ctrls * sizeof(char*), GFP_KERNEL);
+    params.ctrls   = kzalloc(params.n_ctrls * sizeof(char*), GFP_KERNEL);
     if (!params.ctrls) {
         ret        = -ENOMEM;
         BAFS_CORE_ERR("Failed to allocate memory for bafs_group ctrl names\n");
@@ -199,7 +199,7 @@ long bafs_core_create_group(void __user* user_params) {
             goto out_free_local_ctrls;
         }
         else if (ret == MAX_NAME_LEN) {
-            ret       = -EINVAL;
+            ret = -EINVAL;
             BAFS_CORE_ERR("Failed to copy ctrl name, too long\n");
             goto out_free_local_ctrls;
 
@@ -208,7 +208,7 @@ long bafs_core_create_group(void __user* user_params) {
 
     ctrl_devices = kzalloc(params.n_ctrls*sizeof(*ctrl_devices), GFP_KERNEL);
     if (!params.ctrls) {
-        ret = -ENOMEM;
+        ret      = -ENOMEM;
         BAFS_CORE_ERR("Failed to allocate memory for ctrl devices\n");
         goto out_free_local_ctrls;
     }
@@ -220,8 +220,8 @@ long bafs_core_create_group(void __user* user_params) {
             BAFS_CORE_ERR("Failed to find ctrl device: %s\n", params.ctrls[i]);
             goto out_clean_ctrl_devices;
         }
-        device_class_name  = ctrl_devices[i]->class ? ctrl_devices[i]->class->name : "";
-        ret = strncmp(device_class_name, BAFS_CTRL_CLASS_NAME, strlen(BAFS_CTRL_CLASS_NAME));
+        device_class_name = ctrl_devices[i]->class ? ctrl_devices[i]->class->name : "";
+        ret               = strncmp(device_class_name, BAFS_CTRL_CLASS_NAME, strlen(BAFS_CTRL_CLASS_NAME));
         if (ret           != 0) {
             BAFS_CORE_ERR("Failed to find ctrl device: %s\n", params.ctrls[i]);
             goto out_clean_ctrl_devices;
@@ -229,7 +229,7 @@ long bafs_core_create_group(void __user* user_params) {
 
     }
 
-    group = kzalloc(sizeof(*group), GFP_KERNEL);
+    group   = kzalloc(sizeof(*group), GFP_KERNEL);
     if (!group) {
         ret = -ENOMEM;
         BAFS_CORE_ERR("Failed to allocate memory for bafs_group\n");
@@ -239,15 +239,16 @@ long bafs_core_create_group(void __user* user_params) {
 
     group->ctrls = kzalloc(params.n_ctrls*sizeof(*(group->ctrls)), GFP_KERNEL);
     if (!group->ctrls) {
-        ret = -ENOMEM;
+        ret      = -ENOMEM;
         BAFS_CORE_ERR("Failed to allocate memory for bafs_group\n");
         goto out_delete_group;
     }
 
-    for (j              = 0; j < params.n_ctrls; j++) {
+    for (j = 0; j < params.n_ctrls; j++) {
+
         group->ctrls[j] = (struct bafs_ctrl*) dev_get_drvdata(ctrl_devices[j]);
         if (!group->ctrls[j]) {
-            ret         = -EFAULT;
+            ret = -EFAULT;
             BAFS_CORE_ERR("Failed to find ctrl device: %s\n", params.ctrls[j]);
             goto out_delete_group_ctrls;
         }
@@ -267,12 +268,12 @@ long bafs_core_create_group(void __user* user_params) {
         goto out_release_minor_instance;
     }
     group->group_id = ret;
-    group->n_ctrls = params.n_ctrls;
+    group->n_ctrls  = params.n_ctrls;
 
     //cdev_init(&group->cdev, &bafs_group_fops);
     cdev_init(&group->cdev, NULL);
     group->cdev.owner = THIS_MODULE;
-    ret              = cdev_add(&group->cdev, MKDEV(MAJOR(bafs_major), group->minor), 1);
+    ret               = cdev_add(&group->cdev, MKDEV(MAJOR(bafs_major), group->minor), 1);
     if (ret < 0) {
         BAFS_CORE_ERR("Failed to init group cdev \t err = %ld\n", ret);
         goto out_release_group_instance;
@@ -283,16 +284,16 @@ long bafs_core_create_group(void __user* user_params) {
 
     group->device = device_create(bafs_group_class, bafs_core_device, MKDEV(MAJOR(bafs_major), group->minor), group, BAFS_GROUP_DEVICE_NAME, group->group_id);
     if (IS_ERR(group->device)) {
-        ret      = PTR_ERR(group->device);
+        ret       = PTR_ERR(group->device);
         BAFS_CORE_ERR("Failed to create group device \t err = %ld\n", ret);
         goto out_delete_device_cdev;
     }
     kref_init(&group->ref);
     BAFS_CORE_INFO("Created group device %s\n", dev_name(group->device));
 
-    ret = snprintf(params.group_name, MAX_NAME_LEN, "/dev%s", dev_name(group->device));
+    ret      = snprintf(params.group_name, MAX_NAME_LEN, "/dev%s", dev_name(group->device));
     if (ret != 0) {
-        ret = -EINVAL;
+        ret  = -EINVAL;
         BAFS_CORE_ERR("Failed to copy group name\n");
         goto out_destroy_device;
     }
@@ -303,13 +304,16 @@ long bafs_core_create_group(void __user* user_params) {
         goto out_destroy_device;
     }
 
+    for (i = 0; i < params.n_ctrls; i++) {
+        put_device(ctrl_devices[i]);
+    }
+
     kfree(ctrl_devices);
 
     ret = 0;
     return ret;
 
 out_destroy_device:
-    kref_put(&group->ref, __bafs_group_release);
     device_destroy(bafs_group_class, MKDEV(MAJOR(bafs_major), group->minor));
 out_delete_device_cdev:
     cdev_del(&group->cdev);
@@ -337,6 +341,40 @@ out:
 }
 
 
+long bafs_core_delete_group(void __user* user_params) {
+
+    long ret = 0;
+
+    struct bafs_group*                       group;
+    struct device*   device;
+    struct BAFS_CORE_IOC_DELETE_GROUP_PARAMS params;
+
+    if (copy_from_user(&params, user_params, sizeof(params))) {
+        ret = -EFAULT;
+        BAFS_CORE_ERR("Failed to copy params from user\n");
+        goto out;
+    }
+    device = device_find_child_by_name(bafs_core_device, params.group_name);
+    if (!device) {
+        ret = -EINVAL;
+        goto out;
+    }
+
+    group = (struct bafs_group*) dev_get_drvdata(device);
+    if (!group) {
+        ret = -EFAULT;
+        BAFS_CORE_ERR("Failed to find ctrl device: %s\n", params.group_name);
+        goto out;
+    }
+
+    put_device(device);
+    bafs_put_group(group, __bafs_group_release);
+
+out:
+    return ret;
+}
+
+
 static int bafs_core_mmap(struct file* file, struct vm_area_struct* vma) {
 
     int                   ret = 0;
@@ -349,7 +387,7 @@ static int bafs_core_mmap(struct file* file, struct vm_area_struct* vma) {
     }
 
 
-    ret                                             = pin_bafs_mem(vma, ctx);
+    ret = pin_bafs_mem(vma, ctx);
     if (ret < 0) {
         BAFS_CORE_ERR("Failed to mmap memory \t err = %d\n", ret);
         goto out;
@@ -374,7 +412,7 @@ static long bafs_core_ioctl(struct file* file, unsigned int cmd, unsigned long a
     BAFS_CORE_DEBUG("IOCTL called \t cmd = %u\n", cmd);
 
     if (_IOC_TYPE(cmd) != BAFS_CORE_IOCTL) {
-        ret                                      = -EINVAL;
+        ret             = -EINVAL;
         BAFS_CORE_ERR("Invalid IOCTL commad type = %u\n", _IOC_TYPE(cmd));
         goto out;
     }
@@ -400,7 +438,6 @@ static long bafs_core_ioctl(struct file* file, unsigned int cmd, unsigned long a
             goto out;
         }
         break;
-                /*
     case BAFS_CORE_IOC_DELETE_GROUP:
         ret = bafs_core_delete_group(argp);
         if (ret < 0) {
@@ -408,7 +445,6 @@ static long bafs_core_ioctl(struct file* file, unsigned int cmd, unsigned long a
             goto out;
         }
         break;
-            */
     default:
         ret                                     = -EINVAL;
         BAFS_CORE_ERR("Invalid IOCTL cmd \t cmd = %u\n", cmd);
@@ -423,8 +459,8 @@ out:
 }
 
 static int bafs_core_open(struct inode* inode, struct file* file) {
-    int                                 ret;
-    struct bafs_core_ctx*               ctx;
+    int                   ret;
+    struct bafs_core_ctx* ctx;
 
     ctx     = kzalloc(sizeof(*ctx), GFP_KERNEL);
     if (!ctx) {
@@ -445,10 +481,10 @@ out:
 }
 
 static int bafs_core_release(struct inode* inode, struct file* file) {
-    int              ret = 0;
+    int                   ret = 0;
     struct bafs_core_ctx* ctx;
-    struct bafs_mem* mem;
-    struct bafs_mem* next;
+    struct bafs_mem*      mem;
+    struct bafs_mem*      next;
 
     ctx = (struct bafs_core_ctx*) file->private_data;
     if (!ctx) {
@@ -504,7 +540,7 @@ static int __init bafs_init(void) {
     //create core class
     bafs_core_class = class_create(THIS_MODULE, BAFS_CORE_CLASS_NAME);
     if (IS_ERR(bafs_core_class)) {
-        ret = PTR_ERR(bafs_core_class);
+        ret         = PTR_ERR(bafs_core_class);
         BAFS_CORE_ERR("Failed to create core class \t err = %d\n", ret);
         goto out_unregister_core_major_region;
     }
@@ -512,13 +548,14 @@ static int __init bafs_init(void) {
     //create ctrl class
     bafs_ctrl_class = class_create(THIS_MODULE, BAFS_CTRL_CLASS_NAME);
     if (IS_ERR(bafs_ctrl_class)) {
-        ret = PTR_ERR(bafs_ctrl_class);
+        ret         = PTR_ERR(bafs_ctrl_class);
         BAFS_CORE_ERR("Failed to create ctrl class \t err = %d\n", ret);
         goto out_destroy_core_class;
     }
 
     //create group class
-    bafs_group_class                                       = class_create(THIS_MODULE, BAFS_GROUP_CLASS_NAME);
+    bafs_group_class = class_create(THIS_MODULE, BAFS_GROUP_CLASS_NAME);
+
     if (IS_ERR(bafs_group_class)) {
         ret                                                = PTR_ERR(bafs_group_class);
         BAFS_CORE_ERR("Failed to create group class \t err = %d\n", ret);
@@ -538,7 +575,7 @@ static int __init bafs_init(void) {
     //create dev
     bafs_core_device = device_create(bafs_core_class, NULL, MKDEV(MAJOR(bafs_major), BAFS_CORE_MINOR), NULL, BAFS_CORE_DEVICE_NAME);
     if(IS_ERR(bafs_core_device)) {
-        ret = PTR_ERR(bafs_core_device);
+        ret          = PTR_ERR(bafs_core_device);
         BAFS_CORE_ERR("Failed to create core device \t err = %d\n", ret);
         goto out_delete_core_cdev;
     }
