@@ -9,7 +9,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/pci.h>
 
-#include "bafs_common.h"
+#include <linux/bafs.h>
 
 #define PCI_CLASS_NVME      0x010802
 #define PCI_CLASS_NVME_MASK 0xffffff
@@ -108,7 +108,7 @@ struct bafs_mem {
     struct list_head         dma_list;
     struct kref              ref;
     bafs_mem_hnd_t           mem_id;
-    enum LOC                 loc;
+    unsigned                 loc;
     enum STATE               state;
     unsigned long            vaddr;
     unsigned long            size;
@@ -130,7 +130,7 @@ struct bafs_mem_dma {
     struct bafs_ctrl*         ctrl;
     nvidia_p2p_dma_mapping_t* cuda_mapping;
     unsigned long             n_addrs;
-    addr_*               addrs;
+    unsigned long *           addrs;
     unsigned                  map_gran;
 
 };
