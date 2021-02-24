@@ -1,0 +1,7 @@
+export KBUILD_EXTRA_SYMBOLS := @NV_DRIVER_SYMVERS@
+export NV_DRIVER_CONFIG := @NV_DRIVER_CONFIG@
+default:
+	$(MAKE) -C @KERNEL@ M=@module_bin@ src=@module_src@ EXTRA_CFLAGS+="@module_ccflags@" modules
+
+clean:
+	$(MAKE) -C @KERNEL@ M=@module_bin@ src=@module_src@ clean
