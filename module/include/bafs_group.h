@@ -1,11 +1,11 @@
-#ifndef _LINUX_BAFS_GROUP_H_
-#define _LINUX_BAFS_GROUP_H_
+#ifndef __BAFS_GROUP_H__
+#define __BAFS_GROUP_H__
 
-#include <linux/bafs.h>
 #include <asm/uaccess.h>
 
-#include "types.h"
-#include "util.h"
+#include "bafs_types.h"
+#include "bafs_util.h"
+#include "bafs_group_ioctl.h"
 
 long bafs_group_dma_map_mem(struct bafs_group* group, void __user* user_params) {
 
