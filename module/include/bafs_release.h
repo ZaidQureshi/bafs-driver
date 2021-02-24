@@ -1,9 +1,9 @@
-#ifndef _LINUX_BAFS_RELEASE_H_
-#define _LINUX_BAFS_RELEASE_H_
+#ifndef __BAFS_RELEASE_H__
+#define __BAFS_RELEASE_H__
 
 
-#include "util.h"
-#include "types.h"
+#include "bafs_util.h"
+#include "bafs_types.h"
 
 
 extern dev_t bafs_major;

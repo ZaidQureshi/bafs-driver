@@ -1,5 +1,5 @@
-#ifndef _LINUX_BAFS_UTIL_H_
-#define _LINUX_BAFS_UTIL_H_
+#ifndef __BAFS_UTIL_H__
+#define __BAFS_UTIL_H__
 
 #define BAFS_MINORS     (1U << MINORBITS)
 

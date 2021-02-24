@@ -1,5 +1,5 @@
-#ifndef _LINUX_BAFS_MEM_H_
-#define _LINUX_BAFS_MEM_H_
+#ifndef __BAFS_MEM_H__
+#define __BAFS_MEM_H__
 
 #include <linux/mm.h>
 #include <linux/kernel.h>
@@ -9,11 +9,10 @@
 
 #include <nv-p2p.h>
 
-#include <linux/bafs.h>
-
-#include "util.h"
-#include "types.h"
-#include "release.h"
+#include "bafs_core_ioctl.h"
+#include "bafs_util.h"
+#include "bafs_types.h"
+#include "bafs_release.h"
 
 
 
@@ -225,14 +224,14 @@ void __bafs_mem_release(struct kref* ref) {
         spin_lock(&mem->lock);
 
         switch (mem->loc) {
-        case BAFS_MEM_CPU:
+        case CPU:
             if (mem->cpu_page_table) {
                 for (i = 0; i < mem->n_pages; i++)
                     put_page(mem->cpu_page_table[i]);
                 kfree(mem->cpu_page_table);
             }
             break;
-        case BAFS_MEM_CUDA:
+        case CUDA:
             if (mem->cuda_page_table)
                 nvidia_p2p_put_pages(0, 0, mem->vaddr, mem->cuda_page_table);
             break;
@@ -333,7 +332,7 @@ void unmap_dma(struct bafs_mem_dma* dma) {
     mem                  = dma->mem;
     list_del(&dma->dma_list);
     switch (mem->loc) {
-    case BAFS_MEM_CPU:
+    case CPU:
         if (dma->addrs) {
             for (i = 0; i < mem->n_pages; i++) {
                 map_gran = dma->map_gran;
@@ -347,7 +346,7 @@ void unmap_dma(struct bafs_mem_dma* dma) {
             dma->addrs = NULL;
         }
         break;
-    case BAFS_MEM_CUDA:
+    case CUDA:
         if (dma->cuda_mapping && mem->cuda_page_table) {
             nvidia_p2p_dma_unmap_pages(dma->ctrl->pdev, mem->cuda_page_table, dma->cuda_mapping);
             //dma->cuda_mapping = NULL;
@@ -439,13 +438,13 @@ int pin_bafs_mem(struct vm_area_struct* vma, struct bafs_core_ctx* ctx) {
 
     switch (mem->loc) {
 
-    case BAFS_MEM_CPU:
+    case CPU:
         ret = pin_bafs_cpu_mem(mem, vma);
         if (!ret)
             goto out_release;
         break;
 
-    case BAFS_MEM_CUDA:
+    case CUDA:
         ret = pin_bafs_cuda_mem(mem, vma);
         if (!ret)
             goto out_release;

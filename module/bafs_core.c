@@ -6,13 +6,13 @@
 #include <linux/pci.h>
 #include <linux/mm.h>
 
-#include <linux/bafs.h>
-
-#include <linux/bafs/ctrl.h>
-#include <linux/bafs/group.h>
-#include <linux/bafs/mem.h>
-#include <linux/bafs/util.h>
-#include <linux/bafs/release.h>
+#include <bafs_ctrl.h>
+#include <bafs_group.h>
+#include <bafs_mem.h>
+#include <bafs_core_ioctl.h>
+#include <bafs_ctrl_ioctl.h>
+#include <bafs_util.h>
+#include <bafs_release.h>
 
 
 MODULE_LICENSE("GPL");
