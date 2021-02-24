@@ -9,12 +9,12 @@
 #include <linux/dma-mapping.h>
 #include <linux/pci.h>
 
-
+#include "bafs_common.h"
 
 #define PCI_CLASS_NVME      0x010802
 #define PCI_CLASS_NVME_MASK 0xffffff
 
-static const struct pci_device_id pci_dev_id_table[] = {
+const struct pci_device_id pci_dev_id_table[] = {
 
     { PCI_DEVICE_CLASS(PCI_CLASS_NVME, PCI_CLASS_NVME_MASK) },
     {0,}
@@ -23,39 +23,59 @@ static const struct pci_device_id pci_dev_id_table[] = {
 MODULE_DEVICE_TABLE(pci, pci_dev_id_table);
 
 struct bafs_core_ctx {
-    spinlock_t lock;
-    struct xarray bafs_mem_xa;
+    spinlock_t       lock;
+    struct xarray    bafs_mem_xa;
     struct list_head mem_list;
-    struct kref ref;
+    struct kref      ref;
 };
 
 
 struct bafs_group {
-    spinlock_t lock;
-    struct list_head group_list;
-    struct kref ref;
-    bafs_group_hnd_t group_id;
-
+    spinlock_t         lock;
+    struct kref        ref;
+    bafs_group_hnd_t   group_id;
+    int                minor;
+    struct cdev        cdev;
+    struct device*     device;
+    struct device*     core_dev;
+    struct bafs_ctrl** ctrls;
+    unsigned int       n_ctrls;
 };
+
+inline void bafs_get_group(struct bafs_group* group) {
+    BAFS_GROUP_DEBUG("In bafs_get_group: %u \t kref_bef: %u\n", group->group_id, kref_read(&group->ref));
+    kref_get(&group->ref);
+    BAFS_GROUP_DEBUG("In bafs_get_group: %u \t kref_bef: %u\n", group->group_id, kref_read(&group->ref));
+
+
+}
+
+inline void bafs_put_group(struct bafs_group* group, void (*release)(struct kref *kref)) {
+    BAFS_GROUP_DEBUG("In bafs_put_group: %u \t kref_bef: %u\n", group->group_id, kref_read(&group->ref));
+    kref_put(&group->ref, release);
+    BAFS_GROUP_DEBUG("In bafs_put_group: %u \t kref_aft: %u\n", group->group_id, kref_read(&group->ref));
+
+}
+
 
 struct bafs_ctrl {
 
-    spinlock_t      lock;
-    struct device*  dev;
-    struct pci_dev* pdev;
-    struct cdev     cdev;
-    struct device*  device;
-    int             minor;
-    int             ctrl_id;
+    spinlock_t       lock;
+    struct device*   dev;
+    struct pci_dev*  pdev;
+    struct cdev      cdev;
+    struct device*   device;
+    int              minor;
+    int              ctrl_id;
     struct list_head group_list;
-    struct rcu_head          rh;
-    struct bafs_group* group;
-    struct kref ref;
+    struct rcu_head  rh;
+    struct kref      ref;
+    struct device* core_dev;
 };
 
 
 
-static inline struct device* bafs_get_ctrl(struct bafs_ctrl* ctrl) {
+inline struct device* bafs_get_ctrl(struct bafs_ctrl* ctrl) {
     struct device* dev;
     dev = get_device(&ctrl->pdev->dev);
     BAFS_CTRL_DEBUG("In bafs_get_ctrl: %u \t kref_bef: %u\n", ctrl->ctrl_id, kref_read(&ctrl->ref));
@@ -65,11 +85,13 @@ static inline struct device* bafs_get_ctrl(struct bafs_ctrl* ctrl) {
 
 }
 
-static inline void bafs_put_ctrl(struct bafs_ctrl* ctrl, void (*release)(struct kref *kref)) {
+inline void bafs_put_ctrl(struct bafs_ctrl* ctrl, void (*release)(struct kref *kref)) {
+    struct device* dev;
+    dev = &ctrl->pdev->dev;
     BAFS_CTRL_DEBUG("In bafs_put_ctrl: %u \t kref_bef: %u\n", ctrl->ctrl_id, kref_read(&ctrl->ref));
     kref_put(&ctrl->ref, release);
     BAFS_CTRL_DEBUG("In bafs_put_ctrl: %u \t kref_aft: %u\n", ctrl->ctrl_id, kref_read(&ctrl->ref));
-
+    put_device(dev);
 }
 
 enum STATE {
@@ -79,7 +101,7 @@ enum STATE {
 };
 
 struct bafs_mem {
-    struct bafs_core_ctx* ctx;
+    struct bafs_core_ctx*    ctx;
     spinlock_t               lock;
     struct rcu_head          rh;
     struct list_head         mem_list;
@@ -103,16 +125,16 @@ struct bafs_mem_dma {
     spinlock_t                lock;
     struct rcu_head           rh;
     struct list_head          dma_list;
-    struct device*  dev;
+    struct device*            dev;
     struct bafs_mem*          mem;
     struct bafs_ctrl*         ctrl;
     nvidia_p2p_dma_mapping_t* cuda_mapping;
     unsigned long             n_addrs;
-    dma_addr_t*               addrs;
-    unsigned            map_gran;
+    addr_*               addrs;
+    unsigned                  map_gran;
 
 };
 
 
 
-#endif // __BAFS_TYPES_H__
+#endif                          // __BAFS_TYPES_H__

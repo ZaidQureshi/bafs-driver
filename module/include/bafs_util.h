@@ -1,9 +1,10 @@
 #ifndef __BAFS_UTIL_H__
 #define __BAFS_UTIL_H__
 
+#define BAFS_MINORS     (1U << MINORBITS)
 
 #define                      BAFS_CORE_DEVICE_NAME "bafs"
-#define BAFS_CORE_CLASS_NAME "bafs"
+#define BAFS_CORE_CLASS_NAME                       "bafs"
 
 #define BAFS_CTRL_DEVICE_NAME "bafsc%d"
 #define BAFS_CTRL_CLASS_NAME  "bafsc"
@@ -26,7 +27,7 @@ static int debug = 1;
             BAFS_MSG(KERN_DEBUG, DEV_CLASS, FMT, ##__VA_ARGS__); \
     } while (0)
 
-#define BAFS_CORE_DEBUG(FMT, ...)                 \
+#define BAFS_CORE_DEBUG(FMT, ...)               \
     BAFS_DEBUG(BAFS_CORE_CLASS_NAME, FMT, ##__VA_ARGS__)
 
 #define BAFS_CTRL_DEBUG(FMT, ...)                 \

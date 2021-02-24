@@ -16,7 +16,7 @@
 
 
 
-static int pin_bafs_cpu_mem(struct bafs_mem* mem, struct vm_area_struct* vma) {
+int pin_bafs_cpu_mem(struct bafs_mem* mem, struct vm_area_struct* vma) {
 
     int ret = 0;
     int count;
@@ -72,11 +72,11 @@ out:
 
 
 
-static void __bafs_mem_release_cuda(struct kref* ref) {
-    struct bafs_mem* mem;
+void __bafs_mem_release_cuda(struct kref* ref) {
+    struct bafs_mem*      mem;
     struct bafs_core_ctx* ctx;
 
-    mem = container_of(ref, struct bafs_mem, ref);
+    mem     = container_of(ref, struct bafs_mem, ref);
     if (mem) {
         ctx = mem->ctx;
         spin_lock(&ctx->lock);
@@ -93,7 +93,7 @@ static void __bafs_mem_release_cuda(struct kref* ref) {
     }
 }
 
-static void release_bafs_cuda_mem(void* data) {
+void release_bafs_cuda_mem(void* data) {
     struct bafs_mem* mem;
 
     struct bafs_mem_dma* dma;
@@ -116,7 +116,7 @@ static void release_bafs_cuda_mem(void* data) {
     if (mem->cuda_page_table)
         nvidia_p2p_free_page_table(mem->cuda_page_table);
     mem->cuda_page_table = NULL;
-    mem->state = DEAD;
+    mem->state           = DEAD;
     spin_unlock(&mem->lock);
 
 
@@ -128,7 +128,7 @@ static void release_bafs_cuda_mem(void* data) {
 int pin_bafs_cuda_mem(struct bafs_mem* mem, struct vm_area_struct* vma) {
 
     int      ret = 0;
-    unsigned i;
+    int      i;
     unsigned map_gran;
 
     ret = nvidia_p2p_get_pages(0, 0, mem->vaddr, mem->size, &mem->cuda_page_table,
@@ -181,9 +181,10 @@ int pin_bafs_cuda_mem(struct bafs_mem* mem, struct vm_area_struct* vma) {
         goto out_delete_page_table;
     }
 
-    vma->vm_page_prot  = pgprot_noncached(vma->vm_page_prot);
+    vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+
     for (i             = 0; i < mem->n_pages; i++) {
-        map_gran       = mem->page_size;
+        map_gran = mem->page_size;
         if ((i*mem->page_size) > mem->size) {
             map_gran  -= ((i*mem->page_size) - mem->size);
         }
@@ -206,12 +207,13 @@ out:
     return ret;
 }
 
-static void __bafs_mem_release(struct kref* ref) {
-    struct bafs_mem* mem;
+void __bafs_mem_release(struct kref* ref) {
+    struct bafs_mem*      mem;
     struct bafs_core_ctx* ctx;
-    unsigned         i;
 
-    mem = container_of(ref, struct bafs_mem, ref);
+    int i;
+
+    mem     = container_of(ref, struct bafs_mem, ref);
     if (mem) {
         ctx = mem->ctx;
         spin_lock(&ctx->lock);
@@ -273,11 +275,11 @@ long bafs_core_reg_mem(void __user* user_params, struct bafs_core_ctx* ctx) {
     }
 
     kref_get(&ctx->ref);
-    mem->state  = STALE;
+    mem->state = STALE;
 
-    mem->size   = params.size;
-    mem->loc    = params.loc;
-    mem->ctx = ctx;
+    mem->size = params.size;
+    mem->loc  = params.loc;
+    mem->ctx  = ctx;
     INIT_LIST_HEAD(&mem->mem_list);
 
     spin_lock(&ctx->lock);
@@ -319,19 +321,21 @@ out:
 }
 
 
-static void unmap_dma(struct bafs_mem_dma* dma) {
+void unmap_dma(struct bafs_mem_dma* dma) {
 
-    unsigned         map_gran, i;
+    unsigned map_gran;
+    int      i;
+
     struct bafs_mem* mem;
     struct pci_dev*  pdev;
 
-    mem = dma->mem;
+    mem                  = dma->mem;
     list_del(&dma->dma_list);
     switch (mem->loc) {
     case CPU:
         if (dma->addrs) {
             for (i = 0; i < mem->n_pages; i++) {
-                map_gran      = dma->map_gran;
+                map_gran = dma->map_gran;
                 if ((i*dma->map_gran) > mem->size) {
                     map_gran -= ((i*dma->map_gran) - mem->size);
                 }
@@ -361,12 +365,12 @@ static void unmap_dma(struct bafs_mem_dma* dma) {
 
 }
 
-static void bafs_mem_release(struct vm_area_struct* vma) {
+void bafs_mem_release(struct vm_area_struct* vma) {
 
-    struct bafs_mem*     mem;
+    struct bafs_mem*      mem;
     struct bafs_core_ctx* ctx;
-    struct bafs_mem_dma* dma;
-    struct bafs_mem_dma* next;
+    struct bafs_mem_dma*  dma;
+    struct bafs_mem_dma*  next;
 
 
     mem     = (struct bafs_mem*) vma->vm_private_data;
@@ -399,7 +403,7 @@ out:
     return;
 }
 
-static const struct vm_operations_struct bafs_mem_ops = {
+const struct vm_operations_struct bafs_mem_ops = {
 
     .close = bafs_mem_release,
 
@@ -453,8 +457,8 @@ int pin_bafs_mem(struct vm_area_struct* vma, struct bafs_core_ctx* ctx) {
         break;
     }
 
-    vma->vm_ops = &bafs_mem_ops;
-    mem->state = LIVE;
+    vma->vm_ops          = &bafs_mem_ops;
+    mem->state           = LIVE;
     vma->vm_private_data = mem;
 
     ret = 0;
