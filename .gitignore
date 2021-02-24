@@ -3,13 +3,8 @@
 *.log
 tmp/
 
+.*sw?
 
-*ko
-*o
-*cmd
-*.mod.c
-*tmp*
-*symvers
-*order
-*mod
-*a
+debug
+build
+release
