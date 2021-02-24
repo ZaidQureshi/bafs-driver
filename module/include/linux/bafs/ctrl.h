@@ -1,16 +1,17 @@
-#ifndef __BAFS_CTRL_H__
-#define __BAFS_CTRL_H__
+#ifndef _LINUX_BAFS_CTRL_H_
+#define _LINUX_BAFS_CTRL_H_
 
-#include "bafs_util.h"
-#include "bafs_mem.h"
-#include "bafs_ctrl_ioctl.h"
-#include "bafs_types.h"
-#include "bafs_release.h"
+#include <linux/bafs.h>
+
+#include "util.h"
+#include "mem.h"
+#include "types.h"
+#include "release.h"
 
 
 
 
-int __bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, addr_ vaddr, unsigned long* n_dma_addrs,  addr_ __user* dma_addrs_user, struct bafs_mem_dma** dma_, const int ctrl_id) {
+int __bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, unsigned long vaddr, __u32 * n_dma_addrs,  unsigned long __user* dma_addrs_user, struct bafs_mem_dma** dma_, const int ctrl_id) {
     int ret = 0;
     int i   = 0;
 
@@ -58,9 +59,9 @@ int __bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, addr_ vaddr, unsigned long* 
 
 
     switch (mem->loc) {
-    case CPU:
+    case BAFS_MEM_CPU:
         dma->map_gran = mem->page_size;
-        dma->addrs    = (addr_*) kcalloc(mem->n_pages, sizeof(addr_*), GFP_KERNEL);
+        dma->addrs    = (unsigned long *) kcalloc(mem->n_pages, sizeof(unsigned long *), GFP_KERNEL);
         if (!dma->addrs) {
             ret       = -ENOMEM;
             goto out_delete_mem;
@@ -82,14 +83,14 @@ int __bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, addr_ vaddr, unsigned long* 
             *n_dma_addrs += mem->n_pages;
 
 
-        if (copy_to_user(dma_addrs_user, dma->addrs, (*n_dma_addrs)*sizeof(addr_))) {
+        if (copy_to_user(dma_addrs_user, dma->addrs, (*n_dma_addrs)*sizeof(unsigned long))) {
             ret = -EFAULT;
             BAFS_CTRL_ERR("Failed to copy dma addrs to user\n");
             goto out_unmap;
         }
 
         break;
-    case CUDA:
+    case BAFS_MEM_CUDA:
         ret      = nvidia_p2p_dma_map_pages(ctrl->pdev, mem->cuda_page_table, &dma->cuda_mapping);
         if (ret != 0) {
             goto out_delete_mem;
@@ -100,7 +101,7 @@ int __bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, addr_ vaddr, unsigned long* 
             *n_dma_addrs += dma->cuda_mapping->entries;
 
 
-        if (copy_to_user(dma_addrs_user, dma->cuda_mapping->dma_addresses, (*n_dma_addrs)*sizeof(addr_))) {
+        if (copy_to_user(dma_addrs_user, dma->cuda_mapping->dma_addresses, (*n_dma_addrs)*sizeof(unsigned long))) {
             ret = -EFAULT;
             BAFS_CTRL_ERR("Failed to copy dma addrs to user\n");
             goto out_unmap;
@@ -118,11 +119,11 @@ int __bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, addr_ vaddr, unsigned long* 
     return ret;
 
 out_unmap:
-    if (mem->loc == CPU) {
+    if (mem->loc == BAFS_MEM_CPU) {
         for (i    = i-1; i >= 0; i--)
             dma_unmap_single(dma->ctrl->dev, dma->addrs[i], dma->map_gran, DMA_BIDIRECTIONAL);
     }
-    else if(mem->loc == CUDA) {
+    else if(mem->loc == BAFS_MEM_CUDA) {
         nvidia_p2p_dma_unmap_pages(dma->ctrl->pdev, mem->cuda_page_table, dma->cuda_mapping);
     }
 out_delete_mem:
