@@ -1,5 +1,5 @@
-#ifndef __BAFS_TYPES_H__
-#define __BAFS_TYPES_H__
+#ifndef _LINUX_BAFS_TYPES_H_
+#define _LINUX_BAFS_TYPES_H_
 
 
 #include <linux/mm.h>

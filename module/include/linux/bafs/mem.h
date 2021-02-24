@@ -1,5 +1,5 @@
-#ifndef __BAFS_MEM_H__
-#define __BAFS_MEM_H__
+#ifndef _LINUX_BAFS_MEM_H_
+#define _LINUX_BAFS_MEM_H_
 
 #include <linux/mm.h>
 #include <linux/kernel.h>
@@ -11,9 +11,9 @@
 
 #include <linux/bafs.h>
 
-#include "bafs_util.h"
-#include "bafs_types.h"
-#include "bafs_release.h"
+#include "util.h"
+#include "types.h"
+#include "release.h"
 
 
 

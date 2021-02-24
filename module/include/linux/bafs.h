@@ -1,5 +1,5 @@
-#ifndef LINUX_BAFS_H_
-#define LINUX_BAFS_H_
+#ifndef _LINUX_BAFS_H_
+#define _LINUX_BAFS_H_
 
 #include <linux/types.h>
 

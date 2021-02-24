@@ -1,12 +1,12 @@
-#ifndef __BAFS_CTRL_H__
-#define __BAFS_CTRL_H__
+#ifndef _LINUX_BAFS_CTRL_H_
+#define _LINUX_BAFS_CTRL_H_
 
 #include <linux/bafs.h>
 
-#include "bafs_util.h"
-#include "bafs_mem.h"
-#include "bafs_types.h"
-#include "bafs_release.h"
+#include "util.h"
+#include "mem.h"
+#include "types.h"
+#include "release.h"
 
 
 

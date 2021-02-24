@@ -8,11 +8,11 @@
 
 #include <linux/bafs.h>
 
-#include <linux/bafs_ctrl.h>
-#include <linux/bafs_group.h>
-#include <linux/bafs_mem.h>
-#include <linux/bafs_util.h>
-#include <linux/bafs_release.h>
+#include <linux/bafs/ctrl.h>
+#include <linux/bafs/group.h>
+#include <linux/bafs/mem.h>
+#include <linux/bafs/util.h>
+#include <linux/bafs/release.h>
 
 
 MODULE_LICENSE("GPL");
