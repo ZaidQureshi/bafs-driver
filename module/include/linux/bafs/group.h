@@ -1,11 +1,14 @@
 #ifndef _LINUX_BAFS_GROUP_H_
 #define _LINUX_BAFS_GROUP_H_
 
-#include <linux/bafs.h>
+#include <linux/cdev.h>
 #include <asm/uaccess.h>
+
+#include <linux/bafs.h>
 
 #include "types.h"
 #include "util.h"
+#include "release.h"
 
 long bafs_group_dma_map_mem(struct bafs_group* group, void __user* user_params) {
 
@@ -33,7 +36,7 @@ long bafs_group_dma_map_mem(struct bafs_group* group, void __user* user_params) 
 
 
     for (i  = 0; i < group->n_ctrls; i++) {
-        ret = __bafs_ctrl_dma_map_mem(group->ctrls[i], params.vaddr, &params.n_dma_addrs, params.dma_addrs + (n_dma_addrs_per_ctrl * i), &dmas[i], i);
+        ret = bafs_ctrl_dma_map_mem(group->ctrls[i], params.vaddr, &params.n_dma_addrs, params.dma_addrs + (n_dma_addrs_per_ctrl * i), &dmas[i], i);
         if (ret < 0) {
             goto out_unmap_mems;
         }
@@ -53,7 +56,7 @@ long bafs_group_dma_map_mem(struct bafs_group* group, void __user* user_params) 
     return ret;
 out_unmap_mems:
     for (i = i - 1; i >= 0; i--) {
-        __bafs_ctrl_dma_unmap_mem(dmas[i]);
+        bafs_ctrl_dma_unmap_mem(dmas[i]);
     }
 //out_free_mem:
     kfree(dmas);
@@ -158,7 +161,7 @@ int bafs_group_mmap(struct file* file, struct vm_area_struct* vma) {
     spin_lock(&group->lock);
 
     for (i = 0; i < group->n_ctrls; i++) {
-        ret = __bafs_ctrl_mmap(group->ctrls[i], vma, vma->vm_start + map_size, &cur_map_size);
+        ret = bafs_ctrl_mmap(group->ctrls[i], vma, vma->vm_start + map_size, &cur_map_size);
         if (ret < 0) {
             goto out_unlock;
         }
