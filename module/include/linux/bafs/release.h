@@ -15,32 +15,8 @@ extern struct ida bafs_minor_ida;
 extern struct ida bafs_ctrl_ida;
 extern struct ida bafs_group_ida;
 
-void __bafs_ctrl_release(struct kref* ref) {
-    struct bafs_ctrl* ctrl;
 
-    ctrl = container_of(ref, struct bafs_ctrl, ref);
-    BAFS_CTRL_DEBUG("Removing PCI \t ctrl: %p\n", ctrl);
-    if (ctrl) {
-        device_destroy(bafs_ctrl_class, MKDEV(MAJOR(bafs_major), ctrl->minor));
-        put_device(ctrl->core_dev);
-        cdev_del(&ctrl->cdev);
-
-        pci_disable_device(ctrl->pdev);
-        pci_release_region(ctrl->pdev, 0);
-        pci_clear_master(ctrl->pdev);
-        put_device(&ctrl->pdev->dev);
-        ida_simple_remove(&bafs_ctrl_ida, ctrl->ctrl_id);
-        ida_simple_remove(&bafs_minor_ida, ctrl->minor);
-        BAFS_CTRL_DEBUG("Removed PCI \t ctrl: %p\n", ctrl);
-
-        kfree_rcu(ctrl, rh);
-
-
-
-    }
-}
-
-
+static inline
 void __bafs_group_release(struct kref* ref) {
     int j = 0;
     unsigned int id = 0;
@@ -56,7 +32,7 @@ void __bafs_group_release(struct kref* ref) {
 
         device_destroy(bafs_group_class, MKDEV(MAJOR(bafs_major), group->minor));
         for (j = 0; j < group->n_ctrls; j++) {
-            bafs_put_ctrl(group->ctrls[j], __bafs_ctrl_release);
+            bafs_put_ctrl(group->ctrls[j]);
         }
 
         kfree(group->ctrls);
@@ -75,18 +51,5 @@ void __bafs_group_release(struct kref* ref) {
     }
 }
 
-
-void __bafs_core_ctx_release(struct kref* ref) {
-    struct bafs_core_ctx* ctx;
-
-    ctx = container_of(ref, struct bafs_core_ctx, ref);
-
-    if (ctx) {
-        xa_destroy(&ctx->bafs_mem_xa);
-        kfree(ctx);
-
-    }
-
-}
 
 #endif // __BAFS_CTRL_RELEASE_H__

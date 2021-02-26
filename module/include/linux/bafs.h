@@ -89,6 +89,43 @@ struct BAFS_GROUP_IOC_DMA_MAP_MEM_PARAMS {
 
 
 #if defined(__KERNEL__)
+
+struct vm_area_struct;
+
+struct bafs_ctrl;
+struct bafs_core_ctx;
+struct bafs_mem;
+struct bafs_mem_dma;
+
+int bafs_ctrl_init(struct bafs_ctrl *);
+
+void bafs_put_ctrl(struct bafs_ctrl *);
+
+void bafs_put_ctx(struct bafs_core_ctx *);
+
+int
+bafs_ctrl_dma_map_mem(struct bafs_ctrl *, unsigned long, __u32 *, unsigned long __user *,
+                      struct bafs_mem_dma **, const int);
+
+void
+bafs_ctrl_dma_unmap_mem(struct bafs_mem_dma *);
+
+int
+bafs_ctrl_mmap(struct bafs_ctrl *, struct vm_area_struct *, const unsigned long, unsigned long *);
+
+
+int
+pin_bafs_mem(struct vm_area_struct *, struct bafs_core_ctx *);
+
+long
+bafs_core_reg_mem(void __user *, struct bafs_core_ctx *);
+
+void
+bafs_mem_put(struct bafs_mem *);
+
+void
+unmap_dma(struct bafs_mem_dma *);
+
 #endif
 
 #endif

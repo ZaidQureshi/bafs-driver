@@ -1,6 +1,3 @@
-#ifndef _LINUX_BAFS_MEM_H_
-#define _LINUX_BAFS_MEM_H_
-
 #include <linux/mm.h>
 #include <linux/kernel.h>
 #include <linux/list.h>
@@ -11,14 +8,15 @@
 
 #include <linux/bafs.h>
 
-#include "util.h"
-#include "types.h"
-#include "release.h"
+#include <linux/bafs/util.h>
+#include <linux/bafs/types.h>
+#include <linux/bafs/release.h>
 
 
 
-int pin_bafs_cpu_mem(struct bafs_mem* mem, struct vm_area_struct* vma) {
-
+static 
+int pin_bafs_cpu_mem(struct bafs_mem* mem, struct vm_area_struct* vma)
+{
     int ret = 0;
     int count;
     int i;
@@ -70,10 +68,9 @@ out:
 }
 
 
-
-
-
-void __bafs_mem_release_cuda(struct kref* ref) {
+static 
+void __bafs_mem_release_cuda(struct kref* ref)
+{
     struct bafs_mem*      mem;
     struct bafs_core_ctx* ctx;
 
@@ -90,11 +87,13 @@ void __bafs_mem_release_cuda(struct kref* ref) {
             nvidia_p2p_free_page_table(mem->cuda_page_table);
 
         kfree_rcu(mem, rh);
-        kref_put(&ctx->ref, __bafs_core_ctx_release);
+        bafs_put_ctx(ctx);
     }
 }
 
-void release_bafs_cuda_mem(void* data) {
+static
+void release_bafs_cuda_mem(void* data)
+{
     struct bafs_mem* mem;
 
     struct bafs_mem_dma* dma;
@@ -111,7 +110,7 @@ void release_bafs_cuda_mem(void* data) {
         dma->cuda_mapping = NULL;
         list_del(&dma->dma_list);
         kfree_rcu(dma, rh);
-        bafs_put_ctrl(dma->ctrl, __bafs_ctrl_release);
+        bafs_put_ctrl(dma->ctrl);
         kref_put(&mem->ref, __bafs_mem_release_cuda);
     }
     if (mem->cuda_page_table)
@@ -126,8 +125,9 @@ void release_bafs_cuda_mem(void* data) {
 
 }
 
-int pin_bafs_cuda_mem(struct bafs_mem* mem, struct vm_area_struct* vma) {
-
+static
+int pin_bafs_cuda_mem(struct bafs_mem* mem, struct vm_area_struct* vma)
+{
     int      ret = 0;
     int      i;
     unsigned map_gran;
@@ -208,7 +208,9 @@ out:
     return ret;
 }
 
-void __bafs_mem_release(struct kref* ref) {
+static
+void __bafs_mem_release(struct kref* ref)
+{
     struct bafs_mem*      mem;
     struct bafs_core_ctx* ctx;
 
@@ -244,19 +246,18 @@ void __bafs_mem_release(struct kref* ref) {
         spin_unlock(&mem->lock);
         kfree_rcu(mem, rh);
 
-        kref_put(&ctx->ref, __bafs_core_ctx_release);
+        bafs_put_ctx(ctx);
     }
 }
 
+void
+bafs_mem_put(struct bafs_mem * mem)
+{
+    kref_put(&mem->ref, __bafs_mem_release);
+}
 
-
-
-
-
-
-
-long bafs_core_reg_mem(void __user* user_params, struct bafs_core_ctx* ctx) {
-
+long bafs_core_reg_mem(void __user* user_params, struct bafs_core_ctx* ctx)
+{
     long ret = 0;
 
     struct bafs_mem*                    mem;
@@ -315,15 +316,15 @@ out_erase_xa_entry:
 
 out_delete_mem:
     spin_unlock(&ctx->lock);
-    kref_put(&ctx->ref, __bafs_core_ctx_release);
+    bafs_put_ctx(ctx);
     kfree(mem);
 out:
     return ret;
 }
 
 
-void unmap_dma(struct bafs_mem_dma* dma) {
-
+void unmap_dma(struct bafs_mem_dma* dma)
+{
     unsigned map_gran;
     int      i;
 
@@ -361,13 +362,12 @@ void unmap_dma(struct bafs_mem_dma* dma) {
     pdev = dma->ctrl->pdev;
 
     kfree_rcu(dma, rh);
-    bafs_put_ctrl(dma->ctrl, __bafs_ctrl_release);
-
-
+    bafs_put_ctrl(dma->ctrl);
 }
 
-void bafs_mem_release(struct vm_area_struct* vma) {
-
+static
+void bafs_mem_release(struct vm_area_struct* vma)
+{
     struct bafs_mem*      mem;
     struct bafs_core_ctx* ctx;
     struct bafs_mem_dma*  dma;
@@ -393,10 +393,7 @@ void bafs_mem_release(struct vm_area_struct* vma) {
 
     vma->vm_private_data = NULL;
     kref_put(&mem->ref, __bafs_mem_release);
-
-
-
-    kref_put(&ctx->ref, __bafs_core_ctx_release);
+    bafs_put_ctx(ctx);
 
 
 
@@ -405,14 +402,12 @@ out:
 }
 
 const struct vm_operations_struct bafs_mem_ops = {
-
     .close = bafs_mem_release,
-
 };
 
 
-int pin_bafs_mem(struct vm_area_struct* vma, struct bafs_core_ctx* ctx) {
-
+int pin_bafs_mem(struct vm_area_struct* vma, struct bafs_core_ctx* ctx)
+{
     int ret = 0;
 
     struct bafs_mem* mem;
@@ -423,7 +418,7 @@ int pin_bafs_mem(struct vm_area_struct* vma, struct bafs_core_ctx* ctx) {
     spin_lock(&ctx->lock);
     mem    = (struct bafs_mem*) xa_load(&ctx->bafs_mem_xa, mem_id);
     spin_unlock(&ctx->lock);
-    kref_put(&ctx->ref, __bafs_core_ctx_release);
+    bafs_put_ctx(ctx);
 
     if (!mem) {
         ret = -EINVAL;
@@ -473,4 +468,3 @@ out:
 
 
 
-#endif                          // __BAFS_MEM_H__
