@@ -99,6 +99,10 @@ struct bafs_mem_dma;
 
 int bafs_ctrl_init(struct bafs_ctrl *);
 
+void bafs_put_ctrl(struct bafs_ctrl *);
+
+void bafs_put_ctx(struct bafs_core_ctx *);
+
 int
 bafs_ctrl_dma_map_mem(struct bafs_ctrl *, unsigned long, __u32 *, unsigned long __user *,
                       struct bafs_mem_dma **, const int);

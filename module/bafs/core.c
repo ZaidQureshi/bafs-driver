@@ -143,7 +143,7 @@ static void bafs_ctrl_pci_remove(struct pci_dev* pdev) {
 
     BAFS_CTRL_DEBUG("Started PCI remove for PCI device: %02x:%02x.%1x\n", pdev->bus->number, PCI_SLOT(pdev->devfn), PCI_FUNC(pdev->devfn));
 
-    bafs_put_ctrl(ctrl, __bafs_ctrl_release);
+    bafs_put_ctrl(ctrl);
 
     BAFS_CTRL_DEBUG("Finished PCI remove for PCI device: %02x:%02x.%1x\n", pdev->bus->number, PCI_SLOT(pdev->devfn), PCI_FUNC(pdev->devfn));
 
@@ -320,7 +320,7 @@ out_release_minor_instance:
     ida_simple_remove(&bafs_minor_ida, group->minor);
 out_delete_group_ctrls:
     for (j = j - 1; j >= 0; j--) {
-        bafs_put_ctrl(group->ctrls[j], __bafs_ctrl_release);
+        bafs_put_ctrl(group->ctrls[j]);
     }
     kfree(group->ctrls);
 out_delete_group:
@@ -477,7 +477,30 @@ out:
     return ret;
 }
 
-static int bafs_core_release(struct inode* inode, struct file* file) {
+
+static inline
+void __bafs_core_ctx_release(struct kref* ref)
+{
+    struct bafs_core_ctx* ctx;
+
+    ctx = container_of(ref, struct bafs_core_ctx, ref);
+
+    if (ctx) {
+        xa_destroy(&ctx->bafs_mem_xa);
+        kfree(ctx);
+
+    }
+
+}
+
+void bafs_put_ctx(struct bafs_core_ctx * ctx)
+{
+    kref_put(&ctx->ref, __bafs_core_ctx_release);
+}
+
+static int
+bafs_core_release(struct inode* inode, struct file* file)
+{
     int                   ret = 0;
     struct bafs_core_ctx* ctx;
     struct bafs_mem*      mem;

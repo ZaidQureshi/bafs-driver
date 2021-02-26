@@ -7,6 +7,45 @@
 #include <linux/bafs/release.h>
 
 
+static 
+void __bafs_ctrl_release(struct kref* ref) {
+    struct bafs_ctrl* ctrl;
+
+    ctrl = container_of(ref, struct bafs_ctrl, ref);
+    BAFS_CTRL_DEBUG("Removing PCI \t ctrl: %p\n", ctrl);
+    if (ctrl) {
+        device_destroy(bafs_ctrl_class, MKDEV(MAJOR(bafs_major), ctrl->minor));
+        put_device(ctrl->core_dev);
+        cdev_del(&ctrl->cdev);
+
+        pci_disable_device(ctrl->pdev);
+        pci_release_region(ctrl->pdev, 0);
+        pci_clear_master(ctrl->pdev);
+        put_device(&ctrl->pdev->dev);
+        ida_simple_remove(&bafs_ctrl_ida, ctrl->ctrl_id);
+        ida_simple_remove(&bafs_minor_ida, ctrl->minor);
+        BAFS_CTRL_DEBUG("Removed PCI \t ctrl: %p\n", ctrl);
+
+        kfree_rcu(ctrl, rh);
+
+
+
+    }
+}
+
+
+void
+bafs_put_ctrl(struct bafs_ctrl * ctrl)
+{
+    struct device* dev;
+    dev = &ctrl->pdev->dev;
+    BAFS_CTRL_DEBUG("In bafs_put_ctrl: %u \t kref_bef: %u\n", ctrl->ctrl_id, kref_read(&ctrl->ref));
+    kref_put(&ctrl->ref, __bafs_ctrl_release);
+    BAFS_CTRL_DEBUG("In bafs_put_ctrl: %u \t kref_aft: %u\n", ctrl->ctrl_id, kref_read(&ctrl->ref));
+    put_device(dev);
+}
+
+
 int
 bafs_ctrl_dma_map_mem(struct bafs_ctrl * ctrl, unsigned long vaddr, __u32 * n_dma_addrs,
                       unsigned long __user * dma_addrs_user, struct bafs_mem_dma ** dma_,
@@ -134,7 +173,7 @@ out_delete_mem:
 
     kfree(dma);
 
-    bafs_put_ctrl(ctrl, __bafs_ctrl_release);
+    bafs_put_ctrl(ctrl);
     bafs_mem_put(mem);
 
 
@@ -233,7 +272,7 @@ bafs_ctrl_ioctl(struct file* file, unsigned int cmd, unsigned long arg)
 
     ret = 0;
 out_release_ctrl:
-    bafs_put_ctrl(ctrl, __bafs_ctrl_release);
+    bafs_put_ctrl(ctrl);
 out:
     return ret;
 }
@@ -269,7 +308,7 @@ bafs_ctrl_release(struct inode* inode, struct file* file)
         ret = -EINVAL;
         goto out;
     }
-    bafs_put_ctrl(ctrl, __bafs_ctrl_release);
+    bafs_put_ctrl(ctrl);
     return ret;
 out:
     return ret;
@@ -296,7 +335,7 @@ bafs_ctrl_mmap(struct bafs_ctrl* ctrl, struct vm_area_struct* vma, const unsigne
 
     return ret;
 out_put_ctrl:
-    bafs_put_ctrl(ctrl, __bafs_ctrl_release);
+    bafs_put_ctrl(ctrl);
 out:
     return ret;
 }

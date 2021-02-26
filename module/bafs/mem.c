@@ -87,7 +87,7 @@ void __bafs_mem_release_cuda(struct kref* ref)
             nvidia_p2p_free_page_table(mem->cuda_page_table);
 
         kfree_rcu(mem, rh);
-        kref_put(&ctx->ref, __bafs_core_ctx_release);
+        bafs_put_ctx(ctx);
     }
 }
 
@@ -110,7 +110,7 @@ void release_bafs_cuda_mem(void* data)
         dma->cuda_mapping = NULL;
         list_del(&dma->dma_list);
         kfree_rcu(dma, rh);
-        bafs_put_ctrl(dma->ctrl, __bafs_ctrl_release);
+        bafs_put_ctrl(dma->ctrl);
         kref_put(&mem->ref, __bafs_mem_release_cuda);
     }
     if (mem->cuda_page_table)
@@ -246,7 +246,7 @@ void __bafs_mem_release(struct kref* ref)
         spin_unlock(&mem->lock);
         kfree_rcu(mem, rh);
 
-        kref_put(&ctx->ref, __bafs_core_ctx_release);
+        bafs_put_ctx(ctx);
     }
 }
 
@@ -316,7 +316,7 @@ out_erase_xa_entry:
 
 out_delete_mem:
     spin_unlock(&ctx->lock);
-    kref_put(&ctx->ref, __bafs_core_ctx_release);
+    bafs_put_ctx(ctx);
     kfree(mem);
 out:
     return ret;
@@ -362,9 +362,7 @@ void unmap_dma(struct bafs_mem_dma* dma)
     pdev = dma->ctrl->pdev;
 
     kfree_rcu(dma, rh);
-    bafs_put_ctrl(dma->ctrl, __bafs_ctrl_release);
-
-
+    bafs_put_ctrl(dma->ctrl);
 }
 
 static
@@ -395,10 +393,7 @@ void bafs_mem_release(struct vm_area_struct* vma)
 
     vma->vm_private_data = NULL;
     kref_put(&mem->ref, __bafs_mem_release);
-
-
-
-    kref_put(&ctx->ref, __bafs_core_ctx_release);
+    bafs_put_ctx(ctx);
 
 
 
@@ -423,7 +418,7 @@ int pin_bafs_mem(struct vm_area_struct* vma, struct bafs_core_ctx* ctx)
     spin_lock(&ctx->lock);
     mem    = (struct bafs_mem*) xa_load(&ctx->bafs_mem_xa, mem_id);
     spin_unlock(&ctx->lock);
-    kref_put(&ctx->ref, __bafs_core_ctx_release);
+    bafs_put_ctx(ctx);
 
     if (!mem) {
         ret = -EINVAL;
