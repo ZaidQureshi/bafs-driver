@@ -1,17 +1,56 @@
-#ifndef _LINUX_BAFS_CTRL_H_
-#define _LINUX_BAFS_CTRL_H_
+#include <linux/cdev.h>
 
 #include <linux/bafs.h>
 
-#include "util.h"
-#include "mem.h"
-#include "types.h"
-#include "release.h"
+#include <linux/bafs/util.h>
+#include <linux/bafs/types.h>
+#include <linux/bafs/release.h>
+
+
+static 
+void __bafs_ctrl_release(struct kref* ref) {
+    struct bafs_ctrl* ctrl;
+
+    ctrl = container_of(ref, struct bafs_ctrl, ref);
+    BAFS_CTRL_DEBUG("Removing PCI \t ctrl: %p\n", ctrl);
+    if (ctrl) {
+        device_destroy(bafs_ctrl_class, MKDEV(MAJOR(bafs_major), ctrl->minor));
+        put_device(ctrl->core_dev);
+        cdev_del(&ctrl->cdev);
+
+        pci_disable_device(ctrl->pdev);
+        pci_release_region(ctrl->pdev, 0);
+        pci_clear_master(ctrl->pdev);
+        put_device(&ctrl->pdev->dev);
+        ida_simple_remove(&bafs_ctrl_ida, ctrl->ctrl_id);
+        ida_simple_remove(&bafs_minor_ida, ctrl->minor);
+        BAFS_CTRL_DEBUG("Removed PCI \t ctrl: %p\n", ctrl);
+
+        kfree_rcu(ctrl, rh);
 
 
 
+    }
+}
 
-int __bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, unsigned long vaddr, __u32 * n_dma_addrs,  unsigned long __user* dma_addrs_user, struct bafs_mem_dma** dma_, const int ctrl_id) {
+
+void
+bafs_put_ctrl(struct bafs_ctrl * ctrl)
+{
+    struct device* dev;
+    dev = &ctrl->pdev->dev;
+    BAFS_CTRL_DEBUG("In bafs_put_ctrl: %u \t kref_bef: %u\n", ctrl->ctrl_id, kref_read(&ctrl->ref));
+    kref_put(&ctrl->ref, __bafs_ctrl_release);
+    BAFS_CTRL_DEBUG("In bafs_put_ctrl: %u \t kref_aft: %u\n", ctrl->ctrl_id, kref_read(&ctrl->ref));
+    put_device(dev);
+}
+
+
+int
+bafs_ctrl_dma_map_mem(struct bafs_ctrl * ctrl, unsigned long vaddr, __u32 * n_dma_addrs,
+                      unsigned long __user * dma_addrs_user, struct bafs_mem_dma ** dma_,
+                      const int ctrl_id)
+{
     int ret = 0;
     int i   = 0;
 
@@ -134,9 +173,8 @@ out_delete_mem:
 
     kfree(dma);
 
-    bafs_put_ctrl(ctrl, __bafs_ctrl_release);
-
-    kref_put(&mem->ref, __bafs_mem_release);
+    bafs_put_ctrl(ctrl);
+    bafs_mem_put(mem);
 
 
 out:
@@ -144,17 +182,19 @@ out:
 
 } 
 
-void __bafs_ctrl_dma_unmap_mem(struct bafs_mem_dma* dma) {
+void
+bafs_ctrl_dma_unmap_mem(struct bafs_mem_dma* dma)
+{
     struct bafs_mem* mem = dma->mem;
     spin_lock(&mem->lock);
     unmap_dma(dma);
     spin_unlock(&mem->lock);
-    kref_put(&mem->ref, __bafs_mem_release);
-
+    bafs_mem_put(mem);
 }
 
-long bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, void __user* user_params) {
-
+static long
+__bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, void __user* user_params)
+{
     long ret = 0;
 
     struct bafs_mem_dma*                    dma;
@@ -167,7 +207,7 @@ long bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, void __user* user_params) {
     }
 
 
-    ret = __bafs_ctrl_dma_map_mem(ctrl, params.vaddr, &params.n_dma_addrs, params.dma_addrs, &dma, 0);
+    ret = bafs_ctrl_dma_map_mem(ctrl, params.vaddr, &params.n_dma_addrs, params.dma_addrs, &dma, 0);
     if (ret < 0) {
         goto out;
     }
@@ -183,14 +223,16 @@ long bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, void __user* user_params) {
 
     return ret;
 out_unmap_memory:
-    __bafs_ctrl_dma_unmap_mem(dma);
+    bafs_ctrl_dma_unmap_mem(dma);
 out:
     return ret;
 }
 
 
 
-long bafs_ctrl_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
+static long
+bafs_ctrl_ioctl(struct file* file, unsigned int cmd, unsigned long arg)
+{
 
     long ret = 0;
 
@@ -215,7 +257,7 @@ long bafs_ctrl_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
 
     switch (cmd) {
     case BAFS_CTRL_IOC_DMA_MAP_MEM:
-        ret = bafs_ctrl_dma_map_mem(ctrl, argp);
+        ret = __bafs_ctrl_dma_map_mem(ctrl, argp);
         if (ret < 0) {
             BAFS_CTRL_ERR("IOCTL to dma map memory failed\n");
             goto out_release_ctrl;
@@ -230,14 +272,15 @@ long bafs_ctrl_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
 
     ret = 0;
 out_release_ctrl:
-    bafs_put_ctrl(ctrl, __bafs_ctrl_release);
+    bafs_put_ctrl(ctrl);
 out:
     return ret;
 }
 
 
-int bafs_ctrl_open(struct inode* inode, struct file* file) {
-
+static int
+bafs_ctrl_open(struct inode* inode, struct file* file)
+{
     int ret = 0;
 
     struct bafs_ctrl* ctrl = container_of(inode->i_cdev, struct bafs_ctrl, cdev);
@@ -253,8 +296,10 @@ out:
     return ret;
 }
 
-int bafs_ctrl_release(struct inode* inode, struct file* file) {
 
+static int
+bafs_ctrl_release(struct inode* inode, struct file* file)
+{
     int ret = 0;
 
     struct bafs_ctrl* ctrl = (struct bafs_ctrl*) file->private_data;
@@ -263,13 +308,16 @@ int bafs_ctrl_release(struct inode* inode, struct file* file) {
         ret = -EINVAL;
         goto out;
     }
-    bafs_put_ctrl(ctrl, __bafs_ctrl_release);
+    bafs_put_ctrl(ctrl);
     return ret;
 out:
     return ret;
 }
 
-int __bafs_ctrl_mmap(struct bafs_ctrl* ctrl, struct vm_area_struct* vma, const unsigned long vaddr, unsigned long* map_size) {
+
+int
+bafs_ctrl_mmap(struct bafs_ctrl* ctrl, struct vm_area_struct* vma, const unsigned long vaddr, unsigned long* map_size)
+{
     int ret = 0;
 
     if (!ctrl) {
@@ -287,12 +335,14 @@ int __bafs_ctrl_mmap(struct bafs_ctrl* ctrl, struct vm_area_struct* vma, const u
 
     return ret;
 out_put_ctrl:
-    bafs_put_ctrl(ctrl, __bafs_ctrl_release);
+    bafs_put_ctrl(ctrl);
 out:
     return ret;
 }
 
-int bafs_ctrl_mmap(struct file* file, struct vm_area_struct* vma) {
+static int
+__bafs_ctrl_mmap(struct file* file, struct vm_area_struct* vma)
+{
     int ret = 0;
 
     unsigned long map_size = 0;
@@ -303,7 +353,7 @@ int bafs_ctrl_mmap(struct file* file, struct vm_area_struct* vma) {
         ret = -EINVAL;
         goto out;
     }
-    ret = __bafs_ctrl_mmap(ctrl, vma, vma->vm_start, &map_size);
+    ret = bafs_ctrl_mmap(ctrl, vma, vma->vm_start, &map_size);
     if (ret < 0) {
         goto out;
     }
@@ -313,18 +363,22 @@ out:
     return ret;
 }
 
-const struct file_operations bafs_ctrl_fops = {
-
+static const
+struct file_operations bafs_ctrl_fops = {
     .owner          = THIS_MODULE,
     .open           = bafs_ctrl_open,
     .unlocked_ioctl = bafs_ctrl_ioctl,
     .release        = bafs_ctrl_release,
-    .mmap           = bafs_ctrl_mmap,
+    .mmap           = __bafs_ctrl_mmap,
 
 };
 
+int
+bafs_ctrl_init(struct bafs_ctrl * ctrl)
+{
+    /* We should probably move more code here */
+    cdev_init(&ctrl->cdev, &bafs_ctrl_fops);
+    ctrl->cdev.owner = THIS_MODULE;
+    return 0;
+}
 
-
-
-
-#endif                          // __BAFS_CTRL_H__
