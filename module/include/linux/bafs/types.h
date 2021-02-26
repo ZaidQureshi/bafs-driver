@@ -33,6 +33,7 @@ struct bafs_group {
     spinlock_t         lock;
     struct kref        ref;
     bafs_group_hnd_t   group_id;
+    dev_t              major;
     int                minor;
     struct cdev        cdev;
     struct device*     device;
@@ -49,13 +50,6 @@ static inline void bafs_get_group(struct bafs_group* group) {
 
 }
 
-static inline void bafs_put_group(struct bafs_group* group, void (*release)(struct kref *kref)) {
-    BAFS_GROUP_DEBUG("In bafs_put_group: %u \t kref_bef: %u\n", group->group_id, kref_read(&group->ref));
-    kref_put(&group->ref, release);
-    BAFS_GROUP_DEBUG("In bafs_put_group: %u \t kref_aft: %u\n", group->group_id, kref_read(&group->ref));
-
-}
-
 
 struct bafs_ctrl {
 
@@ -64,6 +58,7 @@ struct bafs_ctrl {
     struct pci_dev*  pdev;
     struct cdev      cdev;
     struct device*   device;
+    dev_t            major;
     int              minor;
     int              ctrl_id;
     struct list_head group_list;

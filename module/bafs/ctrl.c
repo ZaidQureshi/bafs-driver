@@ -4,17 +4,54 @@
 
 #include <linux/bafs/util.h>
 #include <linux/bafs/types.h>
-#include <linux/bafs/release.h>
+
+static DEFINE_IDA(bafs_minor_ida);
+static DEFINE_IDA(bafs_ctrl_ida);
+
+static struct class *   bafs_ctrl_class = NULL;
+
+int
+bafs_ctrl_init()
+{
+    int ret = 0;
+    bafs_ctrl_class = class_create(THIS_MODULE, BAFS_CTRL_CLASS_NAME);
+    if (IS_ERR(bafs_ctrl_class)) {
+        ret = PTR_ERR(bafs_ctrl_class);
+        BAFS_CORE_ERR("Failed to create ctrl class \t err = %d\n", ret);
+    }
+    return ret;
+}
+
+
+void
+bafs_ctrl_fini()
+{
+    if(bafs_ctrl_class == NULL) return;
+    class_destroy(bafs_ctrl_class);
+    bafs_ctrl_class = NULL;
+}
+
+int
+bafs_get_minor_number()
+{
+    return ida_simple_get(&bafs_minor_ida, 0, 0, GFP_KERNEL);
+}
+
+void
+bafs_put_minor_number(int id)
+{
+    ida_simple_remove(&bafs_minor_ida, id);
+}
 
 
 static 
-void __bafs_ctrl_release(struct kref* ref) {
+void __bafs_ctrl_release(struct kref * ref) {
     struct bafs_ctrl* ctrl;
 
     ctrl = container_of(ref, struct bafs_ctrl, ref);
     BAFS_CTRL_DEBUG("Removing PCI \t ctrl: %p\n", ctrl);
     if (ctrl) {
-        device_destroy(bafs_ctrl_class, MKDEV(MAJOR(bafs_major), ctrl->minor));
+        device_destroy(bafs_ctrl_class, MKDEV(MAJOR(ctrl->major), ctrl->minor));
         put_device(ctrl->core_dev);
         cdev_del(&ctrl->cdev);
 
@@ -27,9 +64,6 @@ void __bafs_ctrl_release(struct kref* ref) {
         BAFS_CTRL_DEBUG("Removed PCI \t ctrl: %p\n", ctrl);
 
         kfree_rcu(ctrl, rh);
-
-
-
     }
 }
 
@@ -374,11 +408,98 @@ struct file_operations bafs_ctrl_fops = {
 };
 
 int
-bafs_ctrl_init(struct bafs_ctrl * ctrl)
+bafs_ctrl_alloc(struct bafs_ctrl ** out, struct pci_dev * pdev, int bafs_major,
+                struct device * bafs_core_device)
 {
-    /* We should probably move more code here */
+    struct bafs_ctrl * ctrl;
+    int ret;
+
+    ctrl = kzalloc(sizeof(*ctrl), GFP_KERNEL);
+    if(ctrl == NULL) {
+        ret = -ENOMEM;
+        goto out;
+    }
+
+    /* PCI Stuff */
+    pci_set_master(pdev);
+    pci_set_drvdata(pdev, ctrl);
+    pci_free_irq_vectors(pdev);
+    pci_disable_msi(pdev);
+    pci_disable_msix(pdev);
+    dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
+
+    ret = pci_request_region(pdev, 0, BAFS_CTRL_CLASS_NAME);
+    if (ret < 0) {
+        goto out_clear_pci_drvdata;
+    }
+
+    ret = pci_enable_device(pdev);
+    if (ret < 0) {
+        goto out_release_pci_region;
+    }
+
+    spin_lock_init(&ctrl->lock);
+    INIT_LIST_HEAD(&ctrl->group_list);
+
+    ctrl->pdev  = pdev;
+    ctrl->dev   = get_device(&pdev->dev);
+    ctrl->major = MAJOR(bafs_major);
+
+    ret = ida_simple_get(&bafs_minor_ida, 1, BAFS_MINORS, GFP_KERNEL);
+    if(ret < 0) {
+        goto out_disable_pci_device;
+    }
+    ctrl->minor = ret;
+ 
+    ret = ida_simple_get(&bafs_ctrl_ida, 0, 0, GFP_KERNEL);
+    if(ret < 0) {
+        goto out_minor_put;
+    }
+    ctrl->ctrl_id = ret;
+
     cdev_init(&ctrl->cdev, &bafs_ctrl_fops);
     ctrl->cdev.owner = THIS_MODULE;
+
+    ret = cdev_add(&ctrl->cdev, MKDEV(MAJOR(bafs_major), ctrl->minor), 1);
+    if(ret < 0) {
+        goto out_ctrl_id_put;
+    }
+    ctrl->core_dev = get_device(bafs_core_device);
+    ctrl->device = device_create(bafs_ctrl_class, bafs_core_device,
+                                 MKDEV(MAJOR(bafs_major), ctrl->minor),
+                                 ctrl, BAFS_CTRL_DEVICE_NAME, ctrl->ctrl_id);
+    if(IS_ERR(ctrl->device)) {
+        ret = PTR_ERR(ctrl->device);
+        BAFS_CORE_ERR("Failed to create ctrl device \t err = %d\n", ret);
+        goto out_cdev_del;
+    }
+    kref_init(&ctrl->ref);
+
+    *out = ctrl;
     return 0;
+
+out_cdev_del:
+    put_device(ctrl->core_dev);
+    cdev_del(&ctrl->cdev);
+
+out_ctrl_id_put:
+    ida_simple_remove(&bafs_ctrl_ida, ctrl->ctrl_id);
+
+out_minor_put:
+    ida_simple_remove(&bafs_minor_ida, ctrl->minor);
+
+out_disable_pci_device:
+    pci_disable_device(pdev);
+
+out_release_pci_region:
+    pci_release_region(pdev, 0);
+
+out_clear_pci_drvdata:
+    pci_set_drvdata(pdev, NULL);
+    pci_clear_master(pdev);
+
+    kfree(ctrl);
+out:
+    return ret;
 }
 
