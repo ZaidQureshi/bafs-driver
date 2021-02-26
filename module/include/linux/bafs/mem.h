@@ -284,13 +284,13 @@ long bafs_core_reg_mem(void __user* user_params, struct bafs_core_ctx* ctx) {
     INIT_LIST_HEAD(&mem->mem_list);
 
     spin_lock(&ctx->lock);
-    ret     = xa_alloc(&ctx->bafs_mem_xa, &(params.handle), mem, xa_limit_32b, GFP_KERNEL);
+    ret     = xa_alloc(&ctx->bafs_mem_xa, &(mem->mem_id), mem, xa_limit_32b, GFP_KERNEL);
     if (ret < 0) {
         ret = -ENOMEM;
-        BAFS_CORE_ERR("Failed to allocate entry in bafs_mem_xa\n");
+        BAFS_CORE_ERR("Failed to allocate entry in bafs_mem_xa \t ret = %ld\n", ret);
         goto out_delete_mem;
     }
-    mem->mem_id = params.handle;
+    params.handle = mem->mem_id;
 
     list_add(&mem->mem_list, &ctx->mem_list);
     spin_unlock(&ctx->lock);
