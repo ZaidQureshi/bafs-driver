@@ -3,7 +3,6 @@
 #include <linux/bafs.h>
 
 #include <linux/bafs/util.h>
-#include <linux/bafs/mem.h>
 #include <linux/bafs/types.h>
 #include <linux/bafs/release.h>
 
@@ -136,8 +135,7 @@ out_delete_mem:
     kfree(dma);
 
     bafs_put_ctrl(ctrl, __bafs_ctrl_release);
-
-    kref_put(&mem->ref, __bafs_mem_release);
+    bafs_mem_put(mem);
 
 
 out:
@@ -152,8 +150,7 @@ bafs_ctrl_dma_unmap_mem(struct bafs_mem_dma* dma)
     spin_lock(&mem->lock);
     unmap_dma(dma);
     spin_unlock(&mem->lock);
-    kref_put(&mem->ref, __bafs_mem_release);
-
+    bafs_mem_put(mem);
 }
 
 static long

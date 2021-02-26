@@ -1,14 +1,7 @@
 #include <linux/module.h>
 #include <linux/pci.h>
 
-#include <linux/bafs/mem.h>
-
-const struct vm_operations_struct bafs_mem_ops = {
-
-    .close = bafs_mem_release,
-
-};
-
+#include <linux/bafs/types.h>
 
 const struct pci_device_id pci_dev_id_table[] = {
 

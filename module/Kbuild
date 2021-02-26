@@ -4,3 +4,4 @@ obj-m := bafs-core.o
 bafs-core-y := bafs/core.o
 bafs-core-y += bafs/ctrl.o
 bafs-core-y += bafs/data.o
+bafs-core-y += bafs/mem.o

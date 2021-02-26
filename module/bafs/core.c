@@ -9,7 +9,6 @@
 #include <linux/bafs.h>
 
 #include <linux/bafs/group.h>
-#include <linux/bafs/mem.h>
 #include <linux/bafs/util.h>
 #include <linux/bafs/release.h>
 
