@@ -15,6 +15,7 @@ extern struct ida bafs_minor_ida;
 extern struct ida bafs_ctrl_ida;
 extern struct ida bafs_group_ida;
 
+static inline
 void __bafs_ctrl_release(struct kref* ref) {
     struct bafs_ctrl* ctrl;
 
@@ -41,6 +42,7 @@ void __bafs_ctrl_release(struct kref* ref) {
 }
 
 
+static inline
 void __bafs_group_release(struct kref* ref) {
     int j = 0;
 
@@ -73,6 +75,7 @@ void __bafs_group_release(struct kref* ref) {
 }
 
 
+static inline
 void __bafs_core_ctx_release(struct kref* ref) {
     struct bafs_core_ctx* ctx;
 

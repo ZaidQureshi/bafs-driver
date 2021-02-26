@@ -8,7 +8,6 @@
 
 #include <linux/bafs.h>
 
-#include <linux/bafs/ctrl.h>
 #include <linux/bafs/group.h>
 #include <linux/bafs/mem.h>
 #include <linux/bafs/util.h>
@@ -92,8 +91,7 @@ static int bafs_ctrl_pci_probe(struct pci_dev* pdev, const struct pci_device_id*
     }
     ctrl->ctrl_id = ret;
 
-    cdev_init(&ctrl->cdev, &bafs_ctrl_fops);
-    ctrl->cdev.owner = THIS_MODULE;
+    bafs_ctrl_init(ctrl);
     ret              = cdev_add(&ctrl->cdev, MKDEV(MAJOR(bafs_major), ctrl->minor), 1);
     if (ret < 0) {
         BAFS_CTRL_ERR("Failed to init ctrl cdev \t err = %d\n", ret);

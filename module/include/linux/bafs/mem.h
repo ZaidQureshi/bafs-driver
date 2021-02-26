@@ -17,6 +17,7 @@
 
 
 
+static inline
 int pin_bafs_cpu_mem(struct bafs_mem* mem, struct vm_area_struct* vma) {
 
     int ret = 0;
@@ -72,7 +73,7 @@ out:
 
 
 
-
+static inline
 void __bafs_mem_release_cuda(struct kref* ref) {
     struct bafs_mem*      mem;
     struct bafs_core_ctx* ctx;
@@ -94,6 +95,7 @@ void __bafs_mem_release_cuda(struct kref* ref) {
     }
 }
 
+static inline
 void release_bafs_cuda_mem(void* data) {
     struct bafs_mem* mem;
 
@@ -126,6 +128,7 @@ void release_bafs_cuda_mem(void* data) {
 
 }
 
+static inline
 int pin_bafs_cuda_mem(struct bafs_mem* mem, struct vm_area_struct* vma) {
 
     int      ret = 0;
@@ -208,6 +211,7 @@ out:
     return ret;
 }
 
+static inline
 void __bafs_mem_release(struct kref* ref) {
     struct bafs_mem*      mem;
     struct bafs_core_ctx* ctx;
@@ -249,12 +253,7 @@ void __bafs_mem_release(struct kref* ref) {
 }
 
 
-
-
-
-
-
-
+static inline
 long bafs_core_reg_mem(void __user* user_params, struct bafs_core_ctx* ctx) {
 
     long ret = 0;
@@ -322,6 +321,7 @@ out:
 }
 
 
+static inline
 void unmap_dma(struct bafs_mem_dma* dma) {
 
     unsigned map_gran;
@@ -366,6 +366,7 @@ void unmap_dma(struct bafs_mem_dma* dma) {
 
 }
 
+static inline
 void bafs_mem_release(struct vm_area_struct* vma) {
 
     struct bafs_mem*      mem;
@@ -404,13 +405,10 @@ out:
     return;
 }
 
-const struct vm_operations_struct bafs_mem_ops = {
-
-    .close = bafs_mem_release,
-
-};
+extern const struct vm_operations_struct bafs_mem_ops;
 
 
+static inline
 int pin_bafs_mem(struct vm_area_struct* vma, struct bafs_core_ctx* ctx) {
 
     int ret = 0;
