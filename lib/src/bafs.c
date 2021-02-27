@@ -65,7 +65,7 @@ int bafs_core_pin_mem(void** addr, unsigned size, bafs_mem_hnd_t handle) {
         return ret;
     }
 
-    addr_ = mmap(*addr, size, PROT_READ | PROT_WRITE, MAP_SHARED , bafs_core_fd, handle);
+    addr_ = mmap(*addr, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, bafs_core_fd, handle);
     if (addr_ == MAP_FAILED) {
         ret = errno;
         printf("mmap failed: %d\n", ret);
