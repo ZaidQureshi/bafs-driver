@@ -37,13 +37,14 @@ int pin_bafs_cpu_mem(struct bafs_mem* mem, struct vm_area_struct* vma)
         goto out;
     }
 
-
-    ret = get_user_pages(mem->vaddr, mem->n_pages, FOLL_WRITE, mem->cpu_page_table, NULL);
+    //need to fix , can't call get_user_pages in mmap.
+    ret = get_user_pages_fast(mem->vaddr, mem->n_pages, FOLL_WRITE, mem->cpu_page_table);
 
 
     if (ret <= 0) {
+        BAFS_CORE_DEBUG("Failed to pin cpu memory due to get_user_pages failure \t ret = %d\n", ret);
         ret = -ENOMEM;
-        BAFS_CORE_DEBUG("Failed to pin cpu memory due to get_user_pages failure\n");
+
         goto out_delete_page_table;
     }
 
@@ -225,24 +226,25 @@ void __bafs_mem_release(struct kref* ref)
         spin_unlock(&ctx->lock);
 
         spin_lock(&mem->lock);
+        if (mem->state == LIVE) {
+            switch (mem->loc) {
+            case BAFS_MEM_CPU:
+                if (mem->cpu_page_table) {
+                    for (i = 0; i < mem->n_pages; i++)
+                        put_page(mem->cpu_page_table[i]);
+                    kfree(mem->cpu_page_table);
+                }
+                break;
+            case BAFS_MEM_CUDA:
+                if (mem->cuda_page_table)
+                    nvidia_p2p_put_pages(0, 0, mem->vaddr, mem->cuda_page_table);
+                break;
+            default:
+                break;
 
-        switch (mem->loc) {
-        case BAFS_MEM_CPU:
-            if (mem->cpu_page_table) {
-                for (i = 0; i < mem->n_pages; i++)
-                    put_page(mem->cpu_page_table[i]);
-                kfree(mem->cpu_page_table);
             }
-            break;
-        case BAFS_MEM_CUDA:
-            if (mem->cuda_page_table)
-                nvidia_p2p_put_pages(0, 0, mem->vaddr, mem->cuda_page_table);
-            break;
-        default:
-            break;
-
+            mem->state = DEAD;
         }
-        mem->state = DEAD;
         spin_unlock(&mem->lock);
         kfree_rcu(mem, rh);
 
@@ -282,6 +284,8 @@ long bafs_core_reg_mem(void __user* user_params, struct bafs_core_ctx* ctx)
     mem->size = params.size;
     mem->loc  = params.loc;
     mem->ctx  = ctx;
+    spin_lock_init(&mem->lock);
+    kref_init(&mem->ref);
     INIT_LIST_HEAD(&mem->mem_list);
 
     spin_lock(&ctx->lock);
@@ -418,19 +422,19 @@ int pin_bafs_mem(struct vm_area_struct* vma, struct bafs_core_ctx* ctx)
     spin_lock(&ctx->lock);
     mem    = (struct bafs_mem*) xa_load(&ctx->bafs_mem_xa, mem_id);
     spin_unlock(&ctx->lock);
+
     bafs_put_ctx(ctx);
 
     if (!mem) {
         ret = -EINVAL;
         goto out;
     }
+    BAFS_CORE_DEBUG("Got the mem handle %d\n", mem->mem_id);
     kref_get(&mem->ref);
     spin_lock(&mem->lock);
 
     mem->vaddr = vma->vm_start;
 
-    vma->vm_flags |= VM_DONTCOPY;
-    vma->vm_flags |= VM_DONTEXPAND;
 
     switch (mem->loc) {
 
@@ -447,15 +451,17 @@ int pin_bafs_mem(struct vm_area_struct* vma, struct bafs_core_ctx* ctx)
         break;
 
     default:
-        spin_lock(&mem->lock);
+
         ret = -EINVAL;
-        return ret;
+        goto out_release;
         break;
     }
 
     vma->vm_ops          = &bafs_mem_ops;
     mem->state           = LIVE;
     vma->vm_private_data = mem;
+    vma->vm_flags |= VM_DONTCOPY;
+    vma->vm_flags |= VM_DONTEXPAND;
 
     ret = 0;
 out_release:
