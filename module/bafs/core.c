@@ -50,7 +50,7 @@ static void bafs_ctrl_pci_remove(struct pci_dev* pdev) {
 
     BAFS_CTRL_DEBUG("Started PCI remove for PCI device: %02x:%02x.%1x\n", pdev->bus->number, PCI_SLOT(pdev->devfn), PCI_FUNC(pdev->devfn));
 
-    bafs_put_ctrl(ctrl);
+    bafs_ctrl_release(ctrl);
 
     BAFS_CTRL_DEBUG("Finished PCI remove for PCI device: %02x:%02x.%1x\n", pdev->bus->number, PCI_SLOT(pdev->devfn), PCI_FUNC(pdev->devfn));
 

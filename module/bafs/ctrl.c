@@ -45,38 +45,39 @@ bafs_put_minor_number(int id)
 
 
 static 
-void __bafs_ctrl_release(struct kref * ref) {
+void __bafs_ctrl_release(struct kref * ref)
+{
     struct bafs_ctrl* ctrl;
+
+    WARN_ON(ref == NULL);
+    if(ref == NULL) return;
 
     ctrl = container_of(ref, struct bafs_ctrl, ref);
     BAFS_CTRL_DEBUG("Removing PCI \t ctrl: %p\n", ctrl);
-    if (ctrl) {
-        device_destroy(bafs_ctrl_class, MKDEV(MAJOR(ctrl->major), ctrl->minor));
-        put_device(ctrl->core_dev);
-        cdev_del(&ctrl->cdev);
 
-        pci_disable_device(ctrl->pdev);
-        pci_release_region(ctrl->pdev, 0);
-        pci_clear_master(ctrl->pdev);
-        put_device(&ctrl->pdev->dev);
-        ida_simple_remove(&bafs_ctrl_ida, ctrl->ctrl_id);
-        ida_simple_remove(&bafs_minor_ida, ctrl->minor);
-        BAFS_CTRL_DEBUG("Removed PCI \t ctrl: %p\n", ctrl);
+    device_destroy(bafs_ctrl_class, MKDEV(MAJOR(ctrl->major), ctrl->minor));
+    put_device(ctrl->core_dev);
+    cdev_del(&ctrl->cdev);
 
-        kfree_rcu(ctrl, rh);
-    }
+    put_device(ctrl->dev);
+
+    pci_disable_device(ctrl->pdev);
+    pci_release_region(ctrl->pdev, 0);
+    pci_clear_master(ctrl->pdev);
+    put_device(&ctrl->pdev->dev);
+    ida_simple_remove(&bafs_ctrl_ida, ctrl->ctrl_id);
+    ida_simple_remove(&bafs_minor_ida, ctrl->minor);
+
+    BAFS_CTRL_DEBUG("Removed PCI \t ctrl: %p\n", ctrl);
+
+    kfree_rcu(ctrl, rh);
 }
 
 
 void
-bafs_put_ctrl(struct bafs_ctrl * ctrl)
+bafs_ctrl_release(struct bafs_ctrl * ctrl)
 {
-    struct device* dev;
-    dev = &ctrl->pdev->dev;
-    BAFS_CTRL_DEBUG("In bafs_put_ctrl: %u \t kref_bef: %u\n", ctrl->ctrl_id, kref_read(&ctrl->ref));
     kref_put(&ctrl->ref, __bafs_ctrl_release);
-    BAFS_CTRL_DEBUG("In bafs_put_ctrl: %u \t kref_aft: %u\n", ctrl->ctrl_id, kref_read(&ctrl->ref));
-    put_device(dev);
 }
 
 
@@ -207,7 +208,7 @@ out_delete_mem:
 
     kfree(dma);
 
-    bafs_put_ctrl(ctrl);
+    bafs_ctrl_release(ctrl);
     bafs_mem_put(mem);
 
 
@@ -227,12 +228,12 @@ bafs_ctrl_dma_unmap_mem(struct bafs_mem_dma* dma)
 }
 
 static long
-__bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, void __user* user_params)
+__bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, void __user * user_params)
 {
     long ret = 0;
 
     struct bafs_mem_dma*                    dma;
-    struct BAFS_CTRL_IOC_DMA_MAP_MEM_PARAMS params = {0};
+    struct BAFS_CTRL_IOC_DMA_MAP_MEM_PARAMS params;
 
     if (copy_from_user(&params, user_params, sizeof(params))) {
         ret = -EFAULT;
@@ -240,13 +241,10 @@ __bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, void __user* user_params)
         goto out;
     }
 
-
     ret = bafs_ctrl_dma_map_mem(ctrl, params.vaddr, &params.n_dma_addrs, params.dma_addrs, &dma, 0);
     if (ret < 0) {
         goto out;
     }
-
-
 
     if (copy_to_user(user_params, &params, sizeof(params))) {
         ret = -EFAULT;
@@ -306,7 +304,7 @@ bafs_ctrl_ioctl(struct file* file, unsigned int cmd, unsigned long arg)
 
     ret = 0;
 out_release_ctrl:
-    bafs_put_ctrl(ctrl);
+    bafs_ctrl_release(ctrl);
 out:
     return ret;
 }
@@ -332,7 +330,7 @@ out:
 
 
 static int
-bafs_ctrl_release(struct inode* inode, struct file* file)
+bafs_ctrl_file_release(struct inode* inode, struct file* file)
 {
     int ret = 0;
 
@@ -342,7 +340,7 @@ bafs_ctrl_release(struct inode* inode, struct file* file)
         ret = -EINVAL;
         goto out;
     }
-    bafs_put_ctrl(ctrl);
+    bafs_ctrl_release(ctrl);
     return ret;
 out:
     return ret;
@@ -369,7 +367,7 @@ bafs_ctrl_mmap(struct bafs_ctrl* ctrl, struct vm_area_struct* vma, const unsigne
 
     return ret;
 out_put_ctrl:
-    bafs_put_ctrl(ctrl);
+    bafs_ctrl_release(ctrl);
 out:
     return ret;
 }
@@ -402,7 +400,7 @@ struct file_operations bafs_ctrl_fops = {
     .owner          = THIS_MODULE,
     .open           = bafs_ctrl_open,
     .unlocked_ioctl = bafs_ctrl_ioctl,
-    .release        = bafs_ctrl_release,
+    .release        = bafs_ctrl_file_release,
     .mmap           = __bafs_ctrl_mmap,
 
 };

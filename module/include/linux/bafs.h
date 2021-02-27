@@ -101,9 +101,9 @@ struct bafs_mem_dma;
 
 int  bafs_ctrl_init(void);
 void bafs_ctrl_fini(void);
-int  bafs_ctrl_alloc(struct bafs_ctrl **, struct pci_dev *, int, struct device *);
 
-void bafs_put_ctrl(struct bafs_ctrl *); /* TODO: Rename to bafs_ctrl_release */
+int  bafs_ctrl_alloc(struct bafs_ctrl **, struct pci_dev *, int, struct device *);
+void bafs_ctrl_release(struct bafs_ctrl *);
 
 int  bafs_get_minor_number(void);
 void bafs_put_minor_number(int);

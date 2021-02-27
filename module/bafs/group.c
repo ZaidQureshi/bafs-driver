@@ -10,32 +10,36 @@ static DEFINE_IDA(bafs_group_ida);
 static struct class *   bafs_group_class = NULL;
 
 static
-void __bafs_group_release(struct kref* ref) {
-    int j = 0;
+void __bafs_group_release(struct kref* ref)
+{
+    int j;
+    struct bafs_group * group;
 
-    struct bafs_group* group;
-
+    WARN_ON(ref == NULL);
+    if(ref == NULL) return;
 
     group = container_of(ref, struct bafs_group, ref);
     BAFS_GROUP_DEBUG("Removing GROUP \t group: %p\n", group);
-    if (group) {
-        spin_lock(&group->lock);
-        device_destroy(bafs_group_class, MKDEV(MAJOR(group->major), group->minor));
-        for (j = 0; j < group->n_ctrls; j++) {
-            bafs_put_ctrl(group->ctrls[j]);
-        }
 
-        kfree(group->ctrls);
+    spin_lock(&group->lock);
+    device_destroy(bafs_group_class, MKDEV(MAJOR(group->major), group->minor));
+    for (j = 0; j < group->n_ctrls; j++) {
+        WARN_ON(group->ctrls[j] == NULL);
+        if(group->ctrls[j] == NULL) continue;
 
-        put_device(group->core_dev);
-        cdev_del(&group->cdev);
-        ida_simple_remove(&bafs_group_ida, group->group_id);
-        bafs_put_minor_number(group->minor);
-        spin_unlock(&group->lock);
-        BAFS_CTRL_DEBUG("Removed GROUP \t group: %p\n", group);
-
-        kfree(group);
+        bafs_ctrl_release(group->ctrls[j]);
     }
+
+    kfree(group->ctrls);
+
+    put_device(group->core_dev);
+    cdev_del(&group->cdev);
+    ida_simple_remove(&bafs_group_ida, group->group_id);
+    bafs_put_minor_number(group->minor);
+    spin_unlock(&group->lock);
+    BAFS_CTRL_DEBUG("Removed GROUP \t group: %p\n", group);
+
+    kfree(group);
 }
 
 void bafs_put_group(struct bafs_group * group)
@@ -346,7 +350,10 @@ out_group_id_put:
     ida_simple_remove(&bafs_group_ida, group->group_id);
 out_free_ctrls:
     for(i = i - 1; i >= 0; i--) {
-        bafs_put_ctrl(group->ctrls[i]);
+        WARN_ON(group->ctrls[i] == NULL);
+        if(group->ctrls[i] == NULL) continue;
+
+        bafs_ctrl_release(group->ctrls[i]);
     }
     kfree(group->ctrls);
 out_put_device:
