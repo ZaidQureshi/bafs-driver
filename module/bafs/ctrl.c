@@ -34,7 +34,7 @@ bafs_ctrl_fini()
 int
 bafs_get_minor_number()
 {
-    return ida_simple_get(&bafs_minor_ida, 0, 0, GFP_KERNEL);
+    return ida_simple_get(&bafs_minor_ida, 1, BAFS_MINORS, GFP_KERNEL);
 }
 
 void
@@ -462,6 +462,7 @@ bafs_ctrl_alloc(struct bafs_ctrl ** out, struct pci_dev * pdev, int bafs_major,
     if(ret < 0) {
         goto out_ctrl_id_put;
     }
+    BAFS_CORE_DEBUG("Attempting to create ctrl with id %d and minor %d \t err = %d\n", ctrl->ctrl_id, ctrl->minor, ret);
     ctrl->core_dev = get_device(bafs_core_device);
     ctrl->device = device_create(bafs_ctrl_class, bafs_core_device,
                                  MKDEV(MAJOR(bafs_major), ctrl->minor),

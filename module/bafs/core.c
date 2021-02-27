@@ -76,6 +76,7 @@ long bafs_core_create_group(void __user* user_params)
     struct bafs_group *                      group;
     struct BAFS_CORE_IOC_CREATE_GROUP_PARAMS params_;
     struct BAFS_CORE_IOC_CREATE_GROUP_PARAMS params;
+    ctrl_name group_name;
 
     if (copy_from_user(&params_, user_params, sizeof(params_))) {
         ret = -EFAULT;
@@ -83,12 +84,13 @@ long bafs_core_create_group(void __user* user_params)
         goto out;
     }
 
+
     params.n_ctrls = params_.n_ctrls;
-    params.ctrls   = kzalloc(params.n_ctrls * sizeof(char*), GFP_KERNEL);
+    params.ctrls   = kzalloc(params.n_ctrls * sizeof(ctrl_name), GFP_KERNEL);
     if (!params.ctrls) {
         ret        = -ENOMEM;
         BAFS_CORE_ERR("Failed to allocate memory for bafs_group ctrl names\n");
-        goto out_free_params;
+        goto out;
     }
 
     for (i = 0; i < params.n_ctrls; i++) {
@@ -97,7 +99,7 @@ long bafs_core_create_group(void __user* user_params)
             BAFS_CORE_ERR("Failed to copy ctrl name\n");
             goto out_free_params;
         }
-        else if (ret == MAX_NAME_LEN) {
+        else if (ret >= MAX_NAME_LEN) {
             ret = -EINVAL;
             BAFS_CORE_ERR("Failed to copy ctrl name, too long\n");
             goto out_free_params;
@@ -111,14 +113,17 @@ long bafs_core_create_group(void __user* user_params)
     }
 
 
-    ret = snprintf(params.group_name, MAX_NAME_LEN, "/dev%s", dev_name(group->device));
-    if (ret != 0) {
+    ret = snprintf(group_name, MAX_NAME_LEN, "/dev/%s", dev_name(group->device));
+    if ((ret >= MAX_NAME_LEN) || (ret == 0)) {
+        BAFS_CORE_ERR("Failed to copy group name \t ret = %ld\n", ret);
         ret  = -EINVAL;
-        BAFS_CORE_ERR("Failed to copy group name\n");
+
         goto out_free_group;
     }
 
-    if (copy_to_user(user_params, &params, sizeof(params))) {
+
+
+    if (copy_to_user(params_.group_name, group_name, MAX_NAME_LEN)) {
         ret = -EFAULT;
         BAFS_CORE_ERR("Failed to copy params to user\n");
         goto out_free_group;
@@ -143,13 +148,28 @@ long bafs_core_delete_group(void __user* user_params) {
     struct bafs_group*                       group;
     struct device*   device;
     struct BAFS_CORE_IOC_DELETE_GROUP_PARAMS params;
+    ctrl_name group_name;
+
+    BAFS_CORE_DEBUG("Started releasing group\n");
 
     if (copy_from_user(&params, user_params, sizeof(params))) {
         ret = -EFAULT;
         BAFS_CORE_ERR("Failed to copy params from user\n");
         goto out;
     }
-    device = device_find_child_by_name(bafs_core_device, params.group_name);
+    ret = strncpy_from_user(group_name, params.group_name, MAX_NAME_LEN);
+    if (ret < 0) {
+        BAFS_CORE_ERR("Failed to copy group name\n");
+        goto out;
+    }
+    else if (ret == MAX_NAME_LEN) {
+        ret = -EINVAL;
+        BAFS_CORE_ERR("Failed to copy group name, too long\n");
+        goto out;
+
+    }
+
+    device = device_find_child_by_name(bafs_core_device, group_name);
     if (!device) {
         ret = -EINVAL;
         goto out;
@@ -158,13 +178,16 @@ long bafs_core_delete_group(void __user* user_params) {
     group = (struct bafs_group*) dev_get_drvdata(device);
     if (!group) {
         ret = -EFAULT;
-        BAFS_CORE_ERR("Failed to find ctrl device: %s\n", params.group_name);
-        goto out;
+        BAFS_CORE_ERR("Failed to find ctrl device: %s\n", group_name);
+        goto out_put_device;
     }
+
 
     put_device(device);
     bafs_put_group(group);
-
+    return ret;
+out_put_device:
+    put_device(device);
 out:
     return ret;
 }
@@ -263,12 +286,12 @@ static int bafs_core_open(struct inode* inode, struct file* file) {
         goto out;
     }
 
-    xa_init(&ctx->bafs_mem_xa);
+    xa_init_flags(&ctx->bafs_mem_xa, XA_FLAGS_ALLOC);
     spin_lock_init(&ctx->lock);
     INIT_LIST_HEAD(&ctx->mem_list);
     kref_init(&ctx->ref);
     file->private_data = ctx;
-
+    BAFS_CORE_DEBUG("Opened core and inited ctx\n");
     ret = 0;
     return ret;
 out:
@@ -315,6 +338,7 @@ bafs_core_release(struct inode* inode, struct file* file)
         spin_lock(&mem->lock);
         if (mem->state == STALE) {
             xa_erase(&ctx->bafs_mem_xa, mem->mem_id);
+            BAFS_CORE_DEBUG("Deleting Stale mem registeration\n");
             spin_unlock(&mem->lock);
             kfree_rcu(mem, rh);
             kref_put(&ctx->ref, __bafs_core_ctx_release);
@@ -329,6 +353,7 @@ bafs_core_release(struct inode* inode, struct file* file)
     spin_unlock(&ctx->lock);
 
     kref_put(&ctx->ref, __bafs_core_ctx_release);
+    BAFS_CORE_DEBUG("Closed core and cleaned ctx\n");
     return ret;
 out:
     return ret;
@@ -423,6 +448,8 @@ out:
     return ret;
 
 }
+
+
 
 static void __exit bafs_exit(void) {
 

@@ -244,7 +244,7 @@ bafs_group_alloc(struct bafs_group ** out, int bafs_major, struct device * bafs_
     struct bafs_group * group = NULL;
     struct device ** ctrl_devices;
     const char * device_class_name;
-    int i, ret;
+    int i, j, ret;
 
     group = kzalloc(sizeof(*group), GFP_KERNEL);
     if(group == NULL) {
@@ -259,19 +259,19 @@ bafs_group_alloc(struct bafs_group ** out, int bafs_major, struct device * bafs_
     }
 
     get_device(bafs_core_device);
-    for (i = 0; i < n_ctrls; i++) {
-        ctrl_devices[i] = device_find_child_by_name(bafs_core_device, ctrls[i]);
-        if (!ctrl_devices[i]) {
-            BAFS_CORE_ERR("Failed to find ctrl device: %s\n", ctrls[i]);
+    for (j = 0; j < n_ctrls; j++) {
+        ctrl_devices[j] = device_find_child_by_name(bafs_core_device, ctrls[j]);
+        if (!ctrl_devices[j]) {
+            BAFS_CORE_ERR("Failed to find ctrl device: %s\n", ctrls[j]);
             ret = -EINVAL;
-            goto out_put_device;
+            goto out_put_devices;
         }
-        device_class_name = ctrl_devices[i]->class ? ctrl_devices[i]->class->name : "";
+        device_class_name = ctrl_devices[j]->class ? ctrl_devices[j]->class->name : "";
         ret = strncmp(device_class_name, BAFS_CTRL_CLASS_NAME, strlen(BAFS_CTRL_CLASS_NAME));
         if (ret != 0) {
-            BAFS_CORE_ERR("Failed to find ctrl device: %s\n", ctrls[i]);
+            BAFS_CORE_ERR("Failed to find ctrl device: %s\n", ctrls[j]);
             ret = -EINVAL;
-            goto out_put_device;
+            goto out_put_devices;
         }
 
     }
@@ -282,7 +282,7 @@ bafs_group_alloc(struct bafs_group ** out, int bafs_major, struct device * bafs_
     if (!group->ctrls) {
         ret = -ENOMEM;
         BAFS_CORE_ERR("Failed to allocate memory for bafs_group\n");
-        goto out_put_device;
+        goto out_put_devices;
     }
 
     for(i = 0; i < n_ctrls; i++) {
@@ -326,15 +326,15 @@ bafs_group_alloc(struct bafs_group ** out, int bafs_major, struct device * bafs_
                                   group->minor), group, BAFS_GROUP_DEVICE_NAME, group->group_id);
     if(IS_ERR(group->device)) {
         ret = PTR_ERR(group->device);
-        BAFS_CORE_ERR("Failed to create group device \t err = %d\n", ret);
+        BAFS_CORE_ERR("Failed to create group device %s%d with minor %d \t err = %d\n", BAFS_GROUP_DEVICE_NAME, group->group_id, group->minor, ret);
         goto out_delete_cdev;
     }
     kref_init(&group->ref);
     BAFS_CORE_INFO("Created group device %s\n", dev_name(group->device));
 
 
-    for (i = 0; i < n_ctrls; i++) {
-        put_device(ctrl_devices[i]);
+    for (j = 0; j < n_ctrls; j++) {
+        put_device(ctrl_devices[j]);
     }
 
     kfree(ctrl_devices);
@@ -356,7 +356,11 @@ out_free_ctrls:
         bafs_ctrl_release(group->ctrls[i]);
     }
     kfree(group->ctrls);
-out_put_device:
+out_put_devices:
+    for(j = j - 1; j >= 0; j--) {
+
+        put_device(ctrl_devices[j]);
+    }
     put_device(bafs_core_device);
     kfree(ctrl_devices);
 out_free_group:
@@ -369,7 +373,7 @@ out_free_group:
 int
 bafs_group_init()
 {
-    int ret;
+    int ret = 0;
 
     //create group class
     bafs_group_class = class_create(THIS_MODULE, BAFS_GROUP_CLASS_NAME);
