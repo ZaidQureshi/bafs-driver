@@ -91,17 +91,32 @@ struct BAFS_GROUP_IOC_DMA_MAP_MEM_PARAMS {
 #if defined(__KERNEL__)
 
 struct vm_area_struct;
+struct pci_dev;
 
 struct bafs_ctrl;
 struct bafs_core_ctx;
+struct bafs_group;
 struct bafs_mem;
 struct bafs_mem_dma;
 
-int bafs_ctrl_init(struct bafs_ctrl *);
+int  bafs_ctrl_init(void);
+void bafs_ctrl_fini(void);
 
-void bafs_put_ctrl(struct bafs_ctrl *);
+int  bafs_ctrl_alloc(struct bafs_ctrl **, struct pci_dev *, int, struct device *);
+void bafs_ctrl_release(struct bafs_ctrl *);
+
+int  bafs_get_minor_number(void);
+void bafs_put_minor_number(int);
 
 void bafs_put_ctx(struct bafs_core_ctx *);
+
+int  bafs_group_init(void);
+void bafs_group_fini(void);
+
+int  bafs_group_alloc(struct bafs_group **, int, struct device *, size_t,
+                      ctrl_name *);
+
+void bafs_put_group(struct bafs_group *);
 
 int
 bafs_ctrl_dma_map_mem(struct bafs_ctrl *, unsigned long, __u32 *, unsigned long __user *,

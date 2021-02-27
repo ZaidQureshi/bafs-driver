@@ -4,45 +4,80 @@
 
 #include <linux/bafs/util.h>
 #include <linux/bafs/types.h>
-#include <linux/bafs/release.h>
 
+static DEFINE_IDA(bafs_minor_ida);
+static DEFINE_IDA(bafs_ctrl_ida);
 
-static 
-void __bafs_ctrl_release(struct kref* ref) {
-    struct bafs_ctrl* ctrl;
+static struct class *   bafs_ctrl_class = NULL;
 
-    ctrl = container_of(ref, struct bafs_ctrl, ref);
-    BAFS_CTRL_DEBUG("Removing PCI \t ctrl: %p\n", ctrl);
-    if (ctrl) {
-        device_destroy(bafs_ctrl_class, MKDEV(MAJOR(bafs_major), ctrl->minor));
-        put_device(ctrl->core_dev);
-        cdev_del(&ctrl->cdev);
-
-        pci_disable_device(ctrl->pdev);
-        pci_release_region(ctrl->pdev, 0);
-        pci_clear_master(ctrl->pdev);
-        put_device(&ctrl->pdev->dev);
-        ida_simple_remove(&bafs_ctrl_ida, ctrl->ctrl_id);
-        ida_simple_remove(&bafs_minor_ida, ctrl->minor);
-        BAFS_CTRL_DEBUG("Removed PCI \t ctrl: %p\n", ctrl);
-
-        kfree_rcu(ctrl, rh);
-
-
-
+int
+bafs_ctrl_init()
+{
+    int ret = 0;
+    bafs_ctrl_class = class_create(THIS_MODULE, BAFS_CTRL_CLASS_NAME);
+    if (IS_ERR(bafs_ctrl_class)) {
+        ret = PTR_ERR(bafs_ctrl_class);
+        BAFS_CORE_ERR("Failed to create ctrl class \t err = %d\n", ret);
     }
+    return ret;
 }
 
 
 void
-bafs_put_ctrl(struct bafs_ctrl * ctrl)
+bafs_ctrl_fini()
 {
-    struct device* dev;
-    dev = &ctrl->pdev->dev;
-    BAFS_CTRL_DEBUG("In bafs_put_ctrl: %u \t kref_bef: %u\n", ctrl->ctrl_id, kref_read(&ctrl->ref));
+    if(bafs_ctrl_class == NULL) return;
+    class_destroy(bafs_ctrl_class);
+    bafs_ctrl_class = NULL;
+}
+
+int
+bafs_get_minor_number()
+{
+    return ida_simple_get(&bafs_minor_ida, 0, 0, GFP_KERNEL);
+}
+
+void
+bafs_put_minor_number(int id)
+{
+    ida_simple_remove(&bafs_minor_ida, id);
+}
+
+
+static 
+void __bafs_ctrl_release(struct kref * ref)
+{
+    struct bafs_ctrl* ctrl;
+
+    WARN_ON(ref == NULL);
+    if(ref == NULL) return;
+
+    ctrl = container_of(ref, struct bafs_ctrl, ref);
+    BAFS_CTRL_DEBUG("Removing PCI \t ctrl: %p\n", ctrl);
+
+    device_destroy(bafs_ctrl_class, MKDEV(MAJOR(ctrl->major), ctrl->minor));
+    put_device(ctrl->core_dev);
+    cdev_del(&ctrl->cdev);
+
+    put_device(ctrl->dev);
+
+    pci_disable_device(ctrl->pdev);
+    pci_release_region(ctrl->pdev, 0);
+    pci_clear_master(ctrl->pdev);
+    put_device(&ctrl->pdev->dev);
+    ida_simple_remove(&bafs_ctrl_ida, ctrl->ctrl_id);
+    ida_simple_remove(&bafs_minor_ida, ctrl->minor);
+
+    BAFS_CTRL_DEBUG("Removed PCI \t ctrl: %p\n", ctrl);
+
+    kfree_rcu(ctrl, rh);
+}
+
+
+void
+bafs_ctrl_release(struct bafs_ctrl * ctrl)
+{
     kref_put(&ctrl->ref, __bafs_ctrl_release);
-    BAFS_CTRL_DEBUG("In bafs_put_ctrl: %u \t kref_aft: %u\n", ctrl->ctrl_id, kref_read(&ctrl->ref));
-    put_device(dev);
 }
 
 
@@ -173,7 +208,7 @@ out_delete_mem:
 
     kfree(dma);
 
-    bafs_put_ctrl(ctrl);
+    bafs_ctrl_release(ctrl);
     bafs_mem_put(mem);
 
 
@@ -193,12 +228,12 @@ bafs_ctrl_dma_unmap_mem(struct bafs_mem_dma* dma)
 }
 
 static long
-__bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, void __user* user_params)
+__bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, void __user * user_params)
 {
     long ret = 0;
 
     struct bafs_mem_dma*                    dma;
-    struct BAFS_CTRL_IOC_DMA_MAP_MEM_PARAMS params = {0};
+    struct BAFS_CTRL_IOC_DMA_MAP_MEM_PARAMS params;
 
     if (copy_from_user(&params, user_params, sizeof(params))) {
         ret = -EFAULT;
@@ -206,13 +241,10 @@ __bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, void __user* user_params)
         goto out;
     }
 
-
     ret = bafs_ctrl_dma_map_mem(ctrl, params.vaddr, &params.n_dma_addrs, params.dma_addrs, &dma, 0);
     if (ret < 0) {
         goto out;
     }
-
-
 
     if (copy_to_user(user_params, &params, sizeof(params))) {
         ret = -EFAULT;
@@ -272,7 +304,7 @@ bafs_ctrl_ioctl(struct file* file, unsigned int cmd, unsigned long arg)
 
     ret = 0;
 out_release_ctrl:
-    bafs_put_ctrl(ctrl);
+    bafs_ctrl_release(ctrl);
 out:
     return ret;
 }
@@ -298,7 +330,7 @@ out:
 
 
 static int
-bafs_ctrl_release(struct inode* inode, struct file* file)
+bafs_ctrl_file_release(struct inode* inode, struct file* file)
 {
     int ret = 0;
 
@@ -308,7 +340,7 @@ bafs_ctrl_release(struct inode* inode, struct file* file)
         ret = -EINVAL;
         goto out;
     }
-    bafs_put_ctrl(ctrl);
+    bafs_ctrl_release(ctrl);
     return ret;
 out:
     return ret;
@@ -335,7 +367,7 @@ bafs_ctrl_mmap(struct bafs_ctrl* ctrl, struct vm_area_struct* vma, const unsigne
 
     return ret;
 out_put_ctrl:
-    bafs_put_ctrl(ctrl);
+    bafs_ctrl_release(ctrl);
 out:
     return ret;
 }
@@ -368,17 +400,104 @@ struct file_operations bafs_ctrl_fops = {
     .owner          = THIS_MODULE,
     .open           = bafs_ctrl_open,
     .unlocked_ioctl = bafs_ctrl_ioctl,
-    .release        = bafs_ctrl_release,
+    .release        = bafs_ctrl_file_release,
     .mmap           = __bafs_ctrl_mmap,
 
 };
 
 int
-bafs_ctrl_init(struct bafs_ctrl * ctrl)
+bafs_ctrl_alloc(struct bafs_ctrl ** out, struct pci_dev * pdev, int bafs_major,
+                struct device * bafs_core_device)
 {
-    /* We should probably move more code here */
+    struct bafs_ctrl * ctrl;
+    int ret;
+
+    ctrl = kzalloc(sizeof(*ctrl), GFP_KERNEL);
+    if(ctrl == NULL) {
+        ret = -ENOMEM;
+        goto out;
+    }
+
+    /* PCI Stuff */
+    pci_set_master(pdev);
+    pci_set_drvdata(pdev, ctrl);
+    pci_free_irq_vectors(pdev);
+    pci_disable_msi(pdev);
+    pci_disable_msix(pdev);
+    dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
+
+    ret = pci_request_region(pdev, 0, BAFS_CTRL_CLASS_NAME);
+    if (ret < 0) {
+        goto out_clear_pci_drvdata;
+    }
+
+    ret = pci_enable_device(pdev);
+    if (ret < 0) {
+        goto out_release_pci_region;
+    }
+
+    spin_lock_init(&ctrl->lock);
+    INIT_LIST_HEAD(&ctrl->group_list);
+
+    ctrl->pdev  = pdev;
+    ctrl->dev   = get_device(&pdev->dev);
+    ctrl->major = MAJOR(bafs_major);
+
+    ret = ida_simple_get(&bafs_minor_ida, 1, BAFS_MINORS, GFP_KERNEL);
+    if(ret < 0) {
+        goto out_disable_pci_device;
+    }
+    ctrl->minor = ret;
+ 
+    ret = ida_simple_get(&bafs_ctrl_ida, 0, 0, GFP_KERNEL);
+    if(ret < 0) {
+        goto out_minor_put;
+    }
+    ctrl->ctrl_id = ret;
+
     cdev_init(&ctrl->cdev, &bafs_ctrl_fops);
     ctrl->cdev.owner = THIS_MODULE;
+
+    ret = cdev_add(&ctrl->cdev, MKDEV(MAJOR(bafs_major), ctrl->minor), 1);
+    if(ret < 0) {
+        goto out_ctrl_id_put;
+    }
+    ctrl->core_dev = get_device(bafs_core_device);
+    ctrl->device = device_create(bafs_ctrl_class, bafs_core_device,
+                                 MKDEV(MAJOR(bafs_major), ctrl->minor),
+                                 ctrl, BAFS_CTRL_DEVICE_NAME, ctrl->ctrl_id);
+    if(IS_ERR(ctrl->device)) {
+        ret = PTR_ERR(ctrl->device);
+        BAFS_CORE_ERR("Failed to create ctrl device \t err = %d\n", ret);
+        goto out_cdev_del;
+    }
+    kref_init(&ctrl->ref);
+
+    *out = ctrl;
     return 0;
+
+out_cdev_del:
+    put_device(ctrl->core_dev);
+    cdev_del(&ctrl->cdev);
+
+out_ctrl_id_put:
+    ida_simple_remove(&bafs_ctrl_ida, ctrl->ctrl_id);
+
+out_minor_put:
+    ida_simple_remove(&bafs_minor_ida, ctrl->minor);
+
+out_disable_pci_device:
+    pci_disable_device(pdev);
+
+out_release_pci_region:
+    pci_release_region(pdev, 0);
+
+out_clear_pci_drvdata:
+    pci_set_drvdata(pdev, NULL);
+    pci_clear_master(pdev);
+
+    kfree(ctrl);
+out:
+    return ret;
 }
 
