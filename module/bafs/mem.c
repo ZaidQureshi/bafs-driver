@@ -10,8 +10,6 @@
 
 #include <linux/bafs/util.h>
 #include <linux/bafs/types.h>
-#include <linux/bafs/release.h>
-
 
 
 static 
@@ -110,7 +108,7 @@ void release_bafs_cuda_mem(void* data)
         dma->cuda_mapping = NULL;
         list_del(&dma->dma_list);
         kfree_rcu(dma, rh);
-        bafs_put_ctrl(dma->ctrl);
+        bafs_ctrl_release(dma->ctrl);
         kref_put(&mem->ref, __bafs_mem_release_cuda);
     }
     if (mem->cuda_page_table)
@@ -362,7 +360,7 @@ void unmap_dma(struct bafs_mem_dma* dma)
     pdev = dma->ctrl->pdev;
 
     kfree_rcu(dma, rh);
-    bafs_put_ctrl(dma->ctrl);
+    bafs_ctrl_release(dma->ctrl);
 }
 
 static
