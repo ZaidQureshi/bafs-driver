@@ -21,6 +21,8 @@ MODULE_VERSION("0.1");
 
 dev_t bafs_major = {0};
 
+static int bafs_core_minor;
+
 static struct class* bafs_core_class  = NULL;
 
 static struct cdev bafs_core_cdev;
@@ -413,8 +415,17 @@ static int __init bafs_init(void) {
         goto out_group_fini;
     }
 
+
+    ret = bafs_get_minor_number();
+    if (ret < 0) {
+        BAFS_CORE_ERR("Failed to get minor instance id \t err = %d\n", ret);
+        goto out_delete_core_cdev;
+    }
+    bafs_core_minor = ret;
+
+
     //create dev
-    bafs_core_device = device_create(bafs_core_class, NULL, MKDEV(MAJOR(bafs_major), BAFS_CORE_MINOR), NULL, BAFS_CORE_DEVICE_NAME);
+    bafs_core_device = device_create(bafs_core_class, NULL, MKDEV(MAJOR(bafs_major), bafs_core_minor), NULL, BAFS_CORE_DEVICE_NAME);
     if(IS_ERR(bafs_core_device)) {
         ret          = PTR_ERR(bafs_core_device);
         BAFS_CORE_ERR("Failed to create core device \t err = %d\n", ret);
@@ -461,7 +472,7 @@ static void __exit bafs_exit(void) {
     pci_unregister_driver(&bafs_ctrl_pci_driver);
 
 
-    device_destroy(bafs_core_class, MKDEV(MAJOR(bafs_major), BAFS_CORE_MINOR));
+    device_destroy(bafs_core_class, MKDEV(MAJOR(bafs_major), bafs_core_minor));
     cdev_del(&bafs_core_cdev);
     bafs_group_fini();
     bafs_ctrl_fini();

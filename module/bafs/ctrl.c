@@ -34,7 +34,7 @@ bafs_ctrl_fini()
 int
 bafs_get_minor_number()
 {
-    return ida_simple_get(&bafs_minor_ida, 1, BAFS_MINORS, GFP_KERNEL);
+    return ida_simple_get(&bafs_minor_ida, 0, 0, GFP_KERNEL);
 }
 
 void
@@ -443,7 +443,7 @@ bafs_ctrl_alloc(struct bafs_ctrl ** out, struct pci_dev * pdev, int bafs_major,
     ctrl->dev   = get_device(&pdev->dev);
     ctrl->major = MAJOR(bafs_major);
 
-    ret = ida_simple_get(&bafs_minor_ida, 1, BAFS_MINORS, GFP_KERNEL);
+    ret = bafs_get_minor_number();
     if(ret < 0) {
         goto out_disable_pci_device;
     }
