@@ -16,7 +16,6 @@ static
 int pin_bafs_cpu_mem(struct bafs_mem* mem, struct vm_area_struct* vma)
 {
     int ret = 0;
-    int count;
     int i;
     UNUSED(vma);
 
@@ -35,31 +34,35 @@ int pin_bafs_cpu_mem(struct bafs_mem* mem, struct vm_area_struct* vma)
         goto out;
     }
 
-    //need to fix , can't call get_user_pages in mmap.
-    ret = get_user_pages_fast(mem->vaddr, mem->n_pages, FOLL_WRITE, mem->cpu_page_table);
 
 
-    if (ret <= 0) {
-        BAFS_CORE_DEBUG("Failed to pin cpu memory due to get_user_pages failure \t ret = %d\n", ret);
-        ret = -ENOMEM;
+    for(i = 0; i < mem->n_pages; i++) {
+        mem->cpu_page_table[i] = alloc_page(GFP_HIGHUSER | __GFP_DMA | __GFP_ZERO);
+        if (!mem->cpu_page_table[i]) {
+            ret = -ENOMEM;
+            BAFS_CORE_DEBUG("Failed to alloc cpu memory page\n");
+            goto out_clean_page_table;
+        }
 
-        goto out_delete_page_table;
     }
 
-    if ((ret > 0) && (ret < mem->n_pages)) {
-        count = ret;
-        BAFS_CORE_DEBUG("Failed to pin cpu memory due get_user_pages only getting %i pages when %lu were requested\n", count, mem->n_pages);
-        ret   = -ENOMEM;
+
+    ret = vm_map_pages_zero(vma, mem->cpu_page_table, mem->n_pages);
+    if (ret) {
+        ret = -ENOMEM;
+        BAFS_CORE_DEBUG("Failed to vm_map cpu pages\n");
         goto out_clean_page_table;
     }
+
+
 
     ret = 0;
     return ret;
 
 out_clean_page_table:
-    for (i = 0; i < count; i++)
-        put_page(mem->cpu_page_table[i]);
-out_delete_page_table:
+    for (i = i - 1; i >= 0; i--)
+        __free_page(mem->cpu_page_table[i]);
+
     kfree(mem->cpu_page_table);
     mem->cpu_page_table = NULL;
 out:
@@ -216,6 +219,7 @@ void __bafs_mem_release(struct kref* ref)
     int i;
 
     mem     = container_of(ref, struct bafs_mem, ref);
+    BAFS_CORE_DEBUG("In __bafs_mem_release\n");
     if (mem) {
         ctx = mem->ctx;
         spin_lock(&ctx->lock);
@@ -228,8 +232,9 @@ void __bafs_mem_release(struct kref* ref)
             switch (mem->loc) {
             case BAFS_MEM_CPU:
                 if (mem->cpu_page_table) {
+                    BAFS_CORE_DEBUG("Releasing pages\n");
                     for (i = 0; i < mem->n_pages; i++)
-                        put_page(mem->cpu_page_table[i]);
+                        __free_page(mem->cpu_page_table[i]);
                     kfree(mem->cpu_page_table);
                 }
                 break;
@@ -284,6 +289,7 @@ long bafs_core_reg_mem(void __user* user_params, struct bafs_core_ctx* ctx)
     mem->ctx  = ctx;
     spin_lock_init(&mem->lock);
     kref_init(&mem->ref);
+    INIT_LIST_HEAD(&mem->dma_list);
     INIT_LIST_HEAD(&mem->mem_list);
 
     spin_lock(&ctx->lock);
@@ -380,7 +386,7 @@ void bafs_mem_release(struct vm_area_struct* vma)
     if (!mem) {
         goto out;
     }
-
+    BAFS_CORE_DEBUG("In bafs_mem_release\n");
     ctx = mem->ctx;
     kref_get(&ctx->ref);
 
@@ -438,13 +444,15 @@ int pin_bafs_mem(struct vm_area_struct* vma, struct bafs_core_ctx* ctx)
 
     case BAFS_MEM_CPU:
         ret = pin_bafs_cpu_mem(mem, vma);
-        if (!ret)
+        if (ret) {
+            BAFS_CORE_DEBUG("pin_bafs_cpu_mem failed \t ret = %d\n", ret);
             goto out_release;
+        }
         break;
 
     case BAFS_MEM_CUDA:
         ret = pin_bafs_cuda_mem(mem, vma);
-        if (!ret)
+        if (ret)
             goto out_release;
         break;
 

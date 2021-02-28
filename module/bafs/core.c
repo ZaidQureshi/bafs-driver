@@ -337,6 +337,9 @@ bafs_core_release(struct inode* inode, struct file* file)
     list_for_each_entry_safe(mem, next, &ctx->mem_list, mem_list) {
         spin_lock(&mem->lock);
         if (mem->state == STALE) {
+
+            list_del_init(&mem->mem_list);
+
             xa_erase(&ctx->bafs_mem_xa, mem->mem_id);
             BAFS_CORE_DEBUG("Deleting Stale mem registeration\n");
             spin_unlock(&mem->lock);

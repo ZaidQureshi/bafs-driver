@@ -61,14 +61,14 @@ int bafs_core_pin_mem(void** addr, unsigned size, bafs_mem_hnd_t handle) {
 
     if (bafs_core_fd < 0) {
         ret = EINVAL;
-        printf("bafs_core_fd invalid: %d\n", bafs_core_fd);
+        fprintf(stderr, "bafs_core_fd invalid: %d\n", bafs_core_fd);
         return ret;
     }
 
-    addr_ = mmap(*addr, size, PROT_READ | PROT_WRITE, MAP_SHARED , bafs_core_fd, handle);
+    addr_ = mmap(*addr, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, bafs_core_fd, handle);
     if (addr_ == MAP_FAILED) {
         ret = errno;
-        printf("mmap failed: %d\n", ret);
+        fprintf(stderr, "mmap failed: %d\n", ret);
         return ret;
     }
     *addr = addr_;
@@ -91,7 +91,7 @@ int bafs_core_map(void* addr, unsigned size, unsigned loc) {
         return ret;
     }
 
-    ret = bafs_core_pin_mem(addr, size, handle);
+    ret = bafs_core_pin_mem(&addr, size, handle);
     if (ret) {
         return ret;
     }
