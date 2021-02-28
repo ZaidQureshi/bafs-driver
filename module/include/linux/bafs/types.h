@@ -26,6 +26,8 @@ struct bafs_core_ctx {
     struct xarray    bafs_mem_xa;
     struct list_head mem_list;
     struct kref      ref;
+    pid_t tgid;
+    struct pid* tgid_struct;
 };
 
 

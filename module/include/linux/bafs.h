@@ -109,6 +109,7 @@ int  bafs_get_minor_number(void);
 void bafs_put_minor_number(int);
 
 void bafs_put_ctx(struct bafs_core_ctx *);
+struct bafs_mem* bafs_get_mem(const unsigned long vaddr);
 
 int  bafs_group_init(void);
 void bafs_group_fini(void);

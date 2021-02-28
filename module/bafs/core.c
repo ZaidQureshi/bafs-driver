@@ -28,6 +28,7 @@ static struct class* bafs_core_class  = NULL;
 static struct cdev bafs_core_cdev;
 struct device*     bafs_core_device = NULL;
 
+struct xarray bafs_global_ctx_xa;
 
 static int bafs_ctrl_pci_probe(struct pci_dev* pdev, const struct pci_device_id* id)
 {
@@ -278,24 +279,97 @@ out:
     return ret;
 }
 
+struct bafs_mem* bafs_get_mem(const unsigned long vaddr) {
+
+    pid_t tgid;
+    struct pid* tgid_struct;
+    struct bafs_mem* mem = NULL;
+    struct bafs_mem* mem_ = NULL;
+    struct bafs_mem* next = NULL;
+    struct bafs_core_ctx* ctx;
+
+    tgid = task_tgid_nr(current);
+    tgid_struct = find_get_pid(tgid);
+    if (!tgid_struct) {
+        goto out;
+    }
+
+    ctx = (struct bafs_core_ctx*) xa_load(&bafs_global_ctx_xa, tgid);
+    if ((!ctx)) {
+        goto out_put_pid;
+    }
+
+    kref_get(&ctx->ref);
+
+    if (ctx->tgid != tgid) {
+        goto out_put_ctx;
+    }
+
+    spin_lock(&ctx->lock);
+    list_for_each_entry_safe(mem_, next, &ctx->mem_list, mem_list) {
+        kref_get(&mem_->ref);
+        spin_lock(&mem_->lock);
+        if (mem_->vaddr == vaddr) {
+            mem = mem_;
+            spin_unlock(&mem_->lock);
+
+            goto out_unlock_ctx;
+        }
+        spin_unlock(&mem_->lock);
+        bafs_mem_put(mem_);
+
+    }
+
+out_unlock_ctx:
+    spin_unlock(&ctx->lock);
+out_put_ctx:
+    bafs_put_ctx(ctx);
+out_put_pid:
+    put_pid(tgid_struct);
+out:
+    return mem;
+
+}
+
 static int bafs_core_open(struct inode* inode, struct file* file) {
     int                   ret;
     struct bafs_core_ctx* ctx;
+
 
     ctx     = kzalloc(sizeof(*ctx), GFP_KERNEL);
     if (!ctx) {
         ret = -ENOMEM;
         goto out;
     }
+    ctx->tgid = task_tgid_nr(current);
+    ctx->tgid_struct = find_get_pid(ctx->tgid);
+    if (!ctx->tgid_struct) {
+        ret = -EFAULT;
+        goto out_free_ctx;
+    }
+
+
 
     xa_init_flags(&ctx->bafs_mem_xa, XA_FLAGS_ALLOC);
     spin_lock_init(&ctx->lock);
     INIT_LIST_HEAD(&ctx->mem_list);
     kref_init(&ctx->ref);
     file->private_data = ctx;
+
+    ret = xa_insert(&bafs_global_ctx_xa, ctx->tgid, ctx, GFP_KERNEL);
+    if (ret) {
+        ret = -ENOMEM;
+        goto out_reset_file;
+    }
     BAFS_CORE_DEBUG("Opened core and inited ctx\n");
     ret = 0;
     return ret;
+out_reset_file:
+    file->private_data = NULL;
+//out_put_tgid:
+    put_pid(ctx->tgid_struct);
+out_free_ctx:
+    kfree(ctx);
 out:
     return ret;
 }
@@ -309,6 +383,9 @@ void __bafs_core_ctx_release(struct kref* ref)
     ctx = container_of(ref, struct bafs_core_ctx, ref);
 
     if (ctx) {
+        BAFS_CORE_DEBUG("Destroying ctx\n");
+        xa_erase(&bafs_global_ctx_xa, ctx->tgid);
+        put_pid(ctx->tgid_struct);
         xa_destroy(&ctx->bafs_mem_xa);
         kfree(ctx);
 
@@ -441,6 +518,7 @@ static int __init bafs_init(void) {
         goto out_destroy_device;
     }
 
+    xa_init_flags(&bafs_global_ctx_xa, XA_FLAGS_ALLOC);
     BAFS_CORE_INFO("Finished loading module\n");
     return ret;
 
@@ -478,6 +556,7 @@ static void __exit bafs_exit(void) {
     bafs_ctrl_fini();
     class_destroy(bafs_core_class);
     unregister_chrdev_region(bafs_major, BAFS_MINORS);
+    xa_destroy(&bafs_global_ctx_xa);
 
     BAFS_CORE_INFO("Finished unloading module\n");
 

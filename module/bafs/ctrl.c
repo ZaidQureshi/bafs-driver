@@ -90,17 +90,11 @@ bafs_ctrl_dma_map_mem(struct bafs_ctrl * ctrl, unsigned long vaddr, __u32 * n_dm
     int i   = 0;
 
     struct bafs_mem*       mem;
-    struct vm_area_struct* vma;
     struct bafs_mem_dma*   dma;
     unsigned               map_gran;
 
 
-    vma     = find_vma(current->mm, vaddr);
-    if (!vma) {
-        ret = -EINVAL;
-        goto out;
-    }
-    mem     = (struct bafs_mem*) vma->vm_private_data;
+    mem     = bafs_get_mem(vaddr);
     if (!mem) {
         ret = -EINVAL;
         goto out;
@@ -111,12 +105,11 @@ bafs_ctrl_dma_map_mem(struct bafs_ctrl * ctrl, unsigned long vaddr, __u32 * n_dm
     if (!(*dma_)){
         ret = -ENOMEM;
         BAFS_CTRL_ERR("Failed to allocate memory for bafs_mem_dma\n");
-        goto out;
+        goto out_put_mem;
     }
 
     dma = *dma_;
 
-    kref_get(&mem->ref);
 
     dma->dev = bafs_get_ctrl(ctrl);
 
@@ -138,7 +131,7 @@ bafs_ctrl_dma_map_mem(struct bafs_ctrl * ctrl, unsigned long vaddr, __u32 * n_dm
         dma->addrs    = (unsigned long *) kcalloc(mem->n_pages, sizeof(unsigned long *), GFP_KERNEL);
         if (!dma->addrs) {
             ret       = -ENOMEM;
-            goto out_delete_mem;
+            goto out_delete_dma;
         }
         for (i = 0; i < mem->n_pages; i++) {
             map_gran      = dma->map_gran;
@@ -167,7 +160,7 @@ bafs_ctrl_dma_map_mem(struct bafs_ctrl * ctrl, unsigned long vaddr, __u32 * n_dm
     case BAFS_MEM_CUDA:
         ret      = nvidia_p2p_dma_map_pages(ctrl->pdev, mem->cuda_page_table, &dma->cuda_mapping);
         if (ret != 0) {
-            goto out_delete_mem;
+            goto out_delete_dma;
         }
         if (ctrl_id      == 0)
             *n_dma_addrs  = dma->cuda_mapping->entries;
@@ -183,24 +176,24 @@ bafs_ctrl_dma_map_mem(struct bafs_ctrl * ctrl, unsigned long vaddr, __u32 * n_dm
         break;
     default:
         ret = -EINVAL;
-        goto out_delete_mem;
+        goto out_delete_dma;
         break;
 
     }
 
 
-
+    ret = 0;
     return ret;
 
 out_unmap:
     if (mem->loc == BAFS_MEM_CPU) {
-        for (i    = i-1; i >= 0; i--)
+        for (i    = i - 1; i >= 0; i--)
             dma_unmap_single(dma->ctrl->dev, dma->addrs[i], dma->map_gran, DMA_BIDIRECTIONAL);
     }
     else if(mem->loc == BAFS_MEM_CUDA) {
         nvidia_p2p_dma_unmap_pages(dma->ctrl->pdev, mem->cuda_page_table, dma->cuda_mapping);
     }
-out_delete_mem:
+out_delete_dma:
     spin_lock(&mem->lock);
     list_del_init(&dma->dma_list);
     spin_unlock(&mem->lock);
@@ -209,6 +202,7 @@ out_delete_mem:
     kfree(dma);
 
     bafs_ctrl_release(ctrl);
+out_put_mem:
     bafs_mem_put(mem);
 
 

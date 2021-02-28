@@ -93,6 +93,7 @@ bafs_group_dma_map_mem(struct bafs_group* group, void __user* user_params)
         BAFS_GROUP_ERR("Failed to copy params to user\n");
         goto out_unmap_mems;
     }
+    spin_unlock(&group->lock);
 
 
     return ret;
