@@ -76,7 +76,7 @@ int bafs_core_pin_mem(void** addr, unsigned size, bafs_mem_hnd_t handle) {
     return 0;
 }
 
-int bafs_core_map(void* addr, unsigned size, unsigned loc) {
+int bafs_core_map(void** addr, unsigned size, unsigned loc) {
     int ret = 0;
     bafs_mem_hnd_t handle;
 
@@ -91,7 +91,7 @@ int bafs_core_map(void* addr, unsigned size, unsigned loc) {
         return ret;
     }
 
-    ret = bafs_core_pin_mem(&addr, size, handle);
+    ret = bafs_core_pin_mem(addr, size, handle);
     if (ret) {
         return ret;
     }
@@ -173,7 +173,8 @@ int bafs_core_delete_group(char* group_name) {
 }
 
 
-int bafs_ctrl_open(char* ctrl_dev_name, struct bafs_ctrl_t* ctrl_handle) {
+/* BAFS CTRL/GROUP */
+int bafs_ctrl_open(const char* ctrl_dev_name, struct bafs_ctrl_t* ctrl_handle) {
     int ret = 0;
     int fd;
     char c_or_g;
@@ -207,7 +208,6 @@ int bafs_ctrl_open(char* ctrl_dev_name, struct bafs_ctrl_t* ctrl_handle) {
 }
 
 
-/* BAFS CTRL */
 int bafs_ctrl_dma_map_mem(void* vaddr, struct bafs_dma_t* dma_handle, struct bafs_ctrl_t* ctrl_handle) {
     int ret = 0;
 
@@ -237,7 +237,7 @@ int bafs_ctrl_dma_map_mem(void* vaddr, struct bafs_dma_t* dma_handle, struct baf
         ctrl_params.vaddr = (unsigned long) vaddr;
         ctrl_params.dma_addrs = (unsigned long*) dma_handle->dma_addrs;
         ctrl_params.n_dma_addrs = dma_handle->n_dma_addrs;
-        ret = ioctl(ctrl_handle->fd, BAFS_GROUP_IOC_DMA_MAP_MEM, &ctrl_params);
+        ret = ioctl(ctrl_handle->fd, BAFS_CTRL_IOC_DMA_MAP_MEM, &ctrl_params);
         if (ret) {
             ret = errno;
             return ret;
