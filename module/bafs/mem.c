@@ -338,39 +338,43 @@ void unmap_dma(struct bafs_mem_dma* dma)
 
     struct bafs_mem* mem;
     struct pci_dev*  pdev;
+    struct bafs_ctrl* ctrl;
 
-    mem                  = dma->mem;
-    list_del(&dma->dma_list);
-    switch (mem->loc) {
-    case BAFS_MEM_CPU:
-        if (dma->addrs) {
-            for (i = 0; i < mem->n_pages; i++) {
-                map_gran = dma->map_gran;
-                if ((i*dma->map_gran) > mem->size) {
-                    map_gran -= ((i*dma->map_gran) - mem->size);
+    if (dma) {
+        mem                  = dma->mem;
+        list_del_init(&dma->dma_list);
+        switch (mem->loc) {
+        case BAFS_MEM_CPU:
+            if (dma->addrs) {
+                for (i = 0; i < mem->n_pages; i++) {
+                    map_gran = dma->map_gran;
+                    if ((i*dma->map_gran) > mem->size) {
+                        map_gran -= ((i*dma->map_gran) - mem->size);
+                    }
+                    dma_unmap_single(&dma->ctrl->pdev->dev, dma->addrs[i], map_gran, DMA_BIDIRECTIONAL);
                 }
-                dma_unmap_single(&dma->ctrl->pdev->dev, dma->addrs[i], map_gran, DMA_BIDIRECTIONAL);
+
+                kfree(dma->addrs);
+                dma->addrs = NULL;
             }
+            break;
+        case BAFS_MEM_CUDA:
+            if (dma->cuda_mapping && mem->cuda_page_table) {
+                nvidia_p2p_dma_unmap_pages(dma->ctrl->pdev, mem->cuda_page_table, dma->cuda_mapping);
+                //dma->cuda_mapping = NULL;
+            }
+            break;
+        default:
+            break;
 
-            kfree(dma->addrs);
-            dma->addrs = NULL;
         }
-        break;
-    case BAFS_MEM_CUDA:
-        if (dma->cuda_mapping && mem->cuda_page_table) {
-            nvidia_p2p_dma_unmap_pages(dma->ctrl->pdev, mem->cuda_page_table, dma->cuda_mapping);
-            //dma->cuda_mapping = NULL;
-        }
-        break;
-    default:
-        break;
 
+        pdev = dma->ctrl->pdev;
+        ctrl = dma->ctrl;
+
+        kfree_rcu(dma, rh);
+        bafs_ctrl_release(ctrl);
     }
-
-    pdev = dma->ctrl->pdev;
-
-    kfree_rcu(dma, rh);
-    bafs_ctrl_release(dma->ctrl);
 }
 
 static

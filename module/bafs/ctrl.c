@@ -79,7 +79,9 @@ void __bafs_ctrl_release(struct kref * ref)
 void
 bafs_ctrl_release(struct bafs_ctrl * ctrl)
 {
+    BAFS_CTRL_DEBUG("In bafs_ctrl_release: %u \t kref_bef: %u\n", ctrl->ctrl_id, kref_read(&ctrl->ref));
     kref_put(&ctrl->ref, __bafs_ctrl_release);
+    BAFS_CTRL_DEBUG("In bafs_ctrl_release: %u \t kref_aft: %u\n", ctrl->ctrl_id, kref_read(&ctrl->ref));
 }
 
 
@@ -119,10 +121,8 @@ bafs_ctrl_dma_map_mem(struct bafs_ctrl * ctrl, unsigned long vaddr, __u32 * n_dm
 
 
     dma->ctrl = ctrl;
+    dma->mem = mem;
 
-    spin_lock(&mem->lock);
-    list_add(&dma->dma_list, &mem->dma_list);
-    spin_unlock(&mem->lock);
 
 
 
@@ -154,7 +154,7 @@ bafs_ctrl_dma_map_mem(struct bafs_ctrl * ctrl, unsigned long vaddr, __u32 * n_dm
 
         if (copy_to_user(dma_addrs_user, dma->addrs, (*n_dma_addrs)*sizeof(unsigned long))) {
             ret = -EFAULT;
-            BAFS_CTRL_ERR("Failed to copy dma addrs to user\n");
+            BAFS_CTRL_ERR("Failed to copy %u dma addrs to user\n", *n_dma_addrs);
             goto out_unmap;
         }
 
@@ -182,7 +182,9 @@ bafs_ctrl_dma_map_mem(struct bafs_ctrl * ctrl, unsigned long vaddr, __u32 * n_dm
         break;
 
     }
-
+    spin_lock(&mem->lock);
+    list_add(&dma->dma_list, &mem->dma_list);
+    spin_unlock(&mem->lock);
 
     ret = 0;
     return ret;
@@ -196,9 +198,6 @@ out_unmap:
         nvidia_p2p_dma_unmap_pages(dma->ctrl->pdev, mem->cuda_page_table, dma->cuda_mapping);
     }
 out_delete_dma:
-    spin_lock(&mem->lock);
-    list_del_init(&dma->dma_list);
-    spin_unlock(&mem->lock);
 
 
     kfree(dma);
