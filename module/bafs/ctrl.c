@@ -140,8 +140,8 @@ bafs_ctrl_dma_map_mem(struct bafs_ctrl * ctrl, unsigned long vaddr, __u32 * n_dm
             if ((i*dma->map_gran) > mem->size) {
                 map_gran -= ((i*dma->map_gran) - mem->size);
             }
-            dma->addrs[i] = dma_map_single(dma->ctrl->dev, page_to_virt(mem->cpu_page_table[i]), map_gran, DMA_BIDIRECTIONAL);
-            if (dma_mapping_error(dma->ctrl->dev, dma->addrs[i])) {
+            dma->addrs[i] = dma_map_single(&dma->ctrl->pdev->dev, page_to_virt(mem->cpu_page_table[i]), map_gran, DMA_BIDIRECTIONAL);
+            if (dma_mapping_error(&dma->ctrl->pdev->dev, dma->addrs[i])) {
                 ret       = -EFAULT;
                 goto out_unmap;
             }
@@ -190,7 +190,7 @@ bafs_ctrl_dma_map_mem(struct bafs_ctrl * ctrl, unsigned long vaddr, __u32 * n_dm
 out_unmap:
     if (mem->loc == BAFS_MEM_CPU) {
         for (i    = i - 1; i >= 0; i--)
-            dma_unmap_single(dma->ctrl->dev, dma->addrs[i], dma->map_gran, DMA_BIDIRECTIONAL);
+            dma_unmap_single(&dma->ctrl->pdev->dev, dma->addrs[i], dma->map_gran, DMA_BIDIRECTIONAL);
     }
     else if(mem->loc == BAFS_MEM_CUDA) {
         nvidia_p2p_dma_unmap_pages(dma->ctrl->pdev, mem->cuda_page_table, dma->cuda_mapping);

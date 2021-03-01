@@ -56,7 +56,6 @@ static inline void bafs_get_group(struct bafs_group* group) {
 struct bafs_ctrl {
 
     spinlock_t       lock;
-    struct device*   dev;
     struct pci_dev*  pdev;
     struct cdev      cdev;
     struct device*   device;
@@ -73,9 +72,11 @@ struct bafs_ctrl {
 
 static inline struct device* bafs_get_ctrl(struct bafs_ctrl* ctrl) {
     struct device* dev;
-    dev = get_device(&ctrl->pdev->dev);
     BAFS_CTRL_DEBUG("In bafs_get_ctrl: %u \t kref_bef: %u\n", ctrl->ctrl_id, kref_read(&ctrl->ref));
     kref_get(&ctrl->ref);
+    dev = ctrl->device;
+
+
     BAFS_CTRL_DEBUG("In bafs_get_ctrl: %u \t kref_bef: %u\n", ctrl->ctrl_id, kref_read(&ctrl->ref));
     return dev;
 

@@ -349,7 +349,7 @@ void unmap_dma(struct bafs_mem_dma* dma)
                 if ((i*dma->map_gran) > mem->size) {
                     map_gran -= ((i*dma->map_gran) - mem->size);
                 }
-                dma_unmap_single(dma->ctrl->dev, dma->addrs[i], map_gran, DMA_BIDIRECTIONAL);
+                dma_unmap_single(&dma->ctrl->pdev->dev, dma->addrs[i], map_gran, DMA_BIDIRECTIONAL);
             }
 
             kfree(dma->addrs);
