@@ -55,11 +55,13 @@ void __bafs_ctrl_release(struct kref * ref)
     ctrl = container_of(ref, struct bafs_ctrl, ref);
     BAFS_CTRL_DEBUG("Removing PCI \t ctrl: %p\n", ctrl);
 
+    //BAFS_CORE_DEBUG("Attempting to remove ctrl with id %d major %d minor %d\n", ctrl->ctrl_id, ctrl->major, ctrl->minor);
+
     device_destroy(bafs_ctrl_class, MKDEV(MAJOR(ctrl->major), ctrl->minor));
     put_device(ctrl->core_dev);
     cdev_del(&ctrl->cdev);
 
-    put_device(ctrl->dev);
+
 
     pci_disable_device(ctrl->pdev);
     pci_release_region(ctrl->pdev, 0);
@@ -412,6 +414,8 @@ bafs_ctrl_alloc(struct bafs_ctrl ** out, struct pci_dev * pdev, int bafs_major,
         goto out;
     }
 
+    get_device(&pdev->dev);
+
     /* PCI Stuff */
     pci_set_master(pdev);
     pci_set_drvdata(pdev, ctrl);
@@ -434,7 +438,7 @@ bafs_ctrl_alloc(struct bafs_ctrl ** out, struct pci_dev * pdev, int bafs_major,
     INIT_LIST_HEAD(&ctrl->group_list);
 
     ctrl->pdev  = pdev;
-    ctrl->dev   = get_device(&pdev->dev);
+
     ctrl->major = MAJOR(bafs_major);
 
     ret = bafs_get_minor_number();
@@ -452,14 +456,14 @@ bafs_ctrl_alloc(struct bafs_ctrl ** out, struct pci_dev * pdev, int bafs_major,
     cdev_init(&ctrl->cdev, &bafs_ctrl_fops);
     ctrl->cdev.owner = THIS_MODULE;
 
-    ret = cdev_add(&ctrl->cdev, MKDEV(MAJOR(bafs_major), ctrl->minor), 1);
+    ret = cdev_add(&ctrl->cdev, MKDEV(MAJOR(ctrl->major), ctrl->minor), 1);
     if(ret < 0) {
         goto out_ctrl_id_put;
     }
-    BAFS_CORE_DEBUG("Attempting to create ctrl with id %d and minor %d \t err = %d\n", ctrl->ctrl_id, ctrl->minor, ret);
+    //BAFS_CORE_DEBUG("Attempting to create ctrl with id %d major %d minor %d \t err = %d\n", ctrl->ctrl_id, ctrl->major, ctrl->minor, ret);
     ctrl->core_dev = get_device(bafs_core_device);
     ctrl->device = device_create(bafs_ctrl_class, bafs_core_device,
-                                 MKDEV(MAJOR(bafs_major), ctrl->minor),
+                                 MKDEV(MAJOR(ctrl->major), ctrl->minor),
                                  ctrl, BAFS_CTRL_DEVICE_NAME, ctrl->ctrl_id);
     if(IS_ERR(ctrl->device)) {
         ret = PTR_ERR(ctrl->device);
@@ -490,6 +494,7 @@ out_release_pci_region:
 out_clear_pci_drvdata:
     pci_set_drvdata(pdev, NULL);
     pci_clear_master(pdev);
+    put_device(&pdev->dev);
 
     kfree(ctrl);
 out:
