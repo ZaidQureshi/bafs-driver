@@ -55,9 +55,9 @@ void __bafs_ctrl_release(struct kref * ref)
     ctrl = container_of(ref, struct bafs_ctrl, ref);
     BAFS_CTRL_DEBUG("Removing PCI \t ctrl: %p\n", ctrl);
 
-    //BAFS_CORE_DEBUG("Attempting to remove ctrl with id %d major %d minor %d\n", ctrl->ctrl_id, ctrl->major, ctrl->minor);
+    BAFS_CORE_DEBUG("Attempting to remove ctrl with id %d major %d minor %d\n", ctrl->ctrl_id, ctrl->major, ctrl->minor);
 
-    device_destroy(bafs_ctrl_class, MKDEV(MAJOR(ctrl->major), ctrl->minor));
+    device_destroy(bafs_ctrl_class, MKDEV(ctrl->major, ctrl->minor));
     put_device(ctrl->core_dev);
     cdev_del(&ctrl->cdev);
 
@@ -113,7 +113,7 @@ bafs_ctrl_dma_map_mem(struct bafs_ctrl * ctrl, unsigned long vaddr, __u32 * n_dm
     dma = *dma_;
 
 
-    dma->dev = bafs_get_ctrl(ctrl);
+    bafs_get_ctrl(ctrl);
 
     INIT_LIST_HEAD(&dma->dma_list);
 
@@ -456,14 +456,14 @@ bafs_ctrl_alloc(struct bafs_ctrl ** out, struct pci_dev * pdev, int bafs_major,
     cdev_init(&ctrl->cdev, &bafs_ctrl_fops);
     ctrl->cdev.owner = THIS_MODULE;
 
-    ret = cdev_add(&ctrl->cdev, MKDEV(MAJOR(ctrl->major), ctrl->minor), 1);
+    ret = cdev_add(&ctrl->cdev, MKDEV(ctrl->major, ctrl->minor), 1);
     if(ret < 0) {
         goto out_ctrl_id_put;
     }
-    //BAFS_CORE_DEBUG("Attempting to create ctrl with id %d major %d minor %d \t err = %d\n", ctrl->ctrl_id, ctrl->major, ctrl->minor, ret);
+
     ctrl->core_dev = get_device(bafs_core_device);
     ctrl->device = device_create(bafs_ctrl_class, bafs_core_device,
-                                 MKDEV(MAJOR(ctrl->major), ctrl->minor),
+                                 MKDEV(ctrl->major, ctrl->minor),
                                  ctrl, BAFS_CTRL_DEVICE_NAME, ctrl->ctrl_id);
     if(IS_ERR(ctrl->device)) {
         ret = PTR_ERR(ctrl->device);
@@ -471,6 +471,8 @@ bafs_ctrl_alloc(struct bafs_ctrl ** out, struct pci_dev * pdev, int bafs_major,
         goto out_cdev_del;
     }
     kref_init(&ctrl->ref);
+
+    BAFS_CORE_DEBUG("Created ctrl with id %d major %d minor %d \t err = %d\n", ctrl->ctrl_id, ctrl->major, ctrl->minor, ret);
 
     *out = ctrl;
     return 0;

@@ -114,7 +114,6 @@ struct bafs_mem_dma {
     spinlock_t                lock;
     struct rcu_head           rh;
     struct list_head          dma_list;
-    struct device*            dev;
     struct bafs_mem*          mem;
     struct bafs_ctrl*         ctrl;
     nvidia_p2p_dma_mapping_t* cuda_mapping;
