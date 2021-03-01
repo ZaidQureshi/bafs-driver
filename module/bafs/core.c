@@ -558,6 +558,8 @@ static void __exit bafs_exit(void) {
     unregister_chrdev_region(bafs_major, BAFS_MINORS);
     xa_destroy(&bafs_global_ctx_xa);
 
+    bafs_put_minor_number(bafs_core_minor);
+
     BAFS_CORE_INFO("Finished unloading module\n");
 
 }

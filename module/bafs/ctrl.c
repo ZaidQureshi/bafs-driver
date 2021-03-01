@@ -68,7 +68,7 @@ void __bafs_ctrl_release(struct kref * ref)
     pci_clear_master(ctrl->pdev);
     put_device(&ctrl->pdev->dev);
     ida_simple_remove(&bafs_ctrl_ida, ctrl->ctrl_id);
-    ida_simple_remove(&bafs_minor_ida, ctrl->minor);
+    bafs_put_minor_number(ctrl->minor);
 
     BAFS_CTRL_DEBUG("Removed PCI \t ctrl: %p\n", ctrl);
 
@@ -483,7 +483,7 @@ out_ctrl_id_put:
     ida_simple_remove(&bafs_ctrl_ida, ctrl->ctrl_id);
 
 out_minor_put:
-    ida_simple_remove(&bafs_minor_ida, ctrl->minor);
+    bafs_put_minor_number(ctrl->minor);
 
 out_disable_pci_device:
     pci_disable_device(pdev);
