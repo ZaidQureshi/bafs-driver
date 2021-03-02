@@ -489,19 +489,22 @@ static int __init bafs_init(void) {
     cdev_init(&bafs_core_cdev, &bafs_core_fops);
     bafs_core_cdev.owner = THIS_MODULE;
 
-    ret = cdev_add(&bafs_core_cdev, MKDEV(MAJOR(bafs_major), BAFS_CORE_MINOR), 1);
-    if (ret < 0) {
-        BAFS_CORE_ERR("Failed to init core cdev \t err = %d\n", ret);
-        goto out_group_fini;
-    }
+
 
 
     ret = bafs_get_minor_number();
     if (ret < 0) {
         BAFS_CORE_ERR("Failed to get minor instance id \t err = %d\n", ret);
-        goto out_delete_core_cdev;
+        goto out_group_fini;
+
     }
     bafs_core_minor = ret;
+
+    ret = cdev_add(&bafs_core_cdev, MKDEV(MAJOR(bafs_major), bafs_core_minor), 1);
+    if (ret < 0) {
+        BAFS_CORE_ERR("Failed to init core cdev \t err = %d\n", ret);
+        goto out_delete_core_cdev;
+    }
 
 
     //create dev
@@ -526,7 +529,7 @@ static int __init bafs_init(void) {
     return ret;
 
 out_destroy_device:
-    device_destroy(bafs_core_class, MKDEV(MAJOR(bafs_major), BAFS_CORE_MINOR));
+    device_destroy(bafs_core_class, MKDEV(MAJOR(bafs_major), bafs_core_minor));
 out_delete_core_cdev:
     cdev_del(&bafs_core_cdev);
 out_group_fini:
