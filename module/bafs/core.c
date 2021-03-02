@@ -201,12 +201,15 @@ static int bafs_core_mmap(struct file* file, struct vm_area_struct* vma) {
     int                   ret = 0;
     struct bafs_core_ctx* ctx;
 
+    BAFS_CORE_DEBUG("Starting bafs_core_mmap\n");
     ctx     = (struct bafs_core_ctx*) file->private_data;
     if (!ctx) {
         ret = -EFAULT;
+        BAFS_CORE_DEBUG("failed to get ctx\n");
         goto out;
     }
 
+    BAFS_CORE_DEBUG("got ctx\n");
 
     ret = pin_bafs_mem(vma, ctx);
     if (ret < 0) {
@@ -309,7 +312,7 @@ struct bafs_mem* bafs_get_mem(const unsigned long vaddr) {
     list_for_each_entry_safe(mem_, next, &ctx->mem_list, mem_list) {
         kref_get(&mem_->ref);
         spin_lock(&mem_->lock);
-        if (mem_->vaddr == vaddr) {
+        if ((mem_->vaddr == vaddr) && (mem_->state != DEAD) && (mem_->state != DEAD_CB)) {
             mem = mem_;
             spin_unlock(&mem_->lock);
 
@@ -486,19 +489,22 @@ static int __init bafs_init(void) {
     cdev_init(&bafs_core_cdev, &bafs_core_fops);
     bafs_core_cdev.owner = THIS_MODULE;
 
-    ret = cdev_add(&bafs_core_cdev, MKDEV(MAJOR(bafs_major), BAFS_CORE_MINOR), 1);
-    if (ret < 0) {
-        BAFS_CORE_ERR("Failed to init core cdev \t err = %d\n", ret);
-        goto out_group_fini;
-    }
+
 
 
     ret = bafs_get_minor_number();
     if (ret < 0) {
         BAFS_CORE_ERR("Failed to get minor instance id \t err = %d\n", ret);
-        goto out_delete_core_cdev;
+        goto out_group_fini;
+
     }
     bafs_core_minor = ret;
+
+    ret = cdev_add(&bafs_core_cdev, MKDEV(MAJOR(bafs_major), bafs_core_minor), 1);
+    if (ret < 0) {
+        BAFS_CORE_ERR("Failed to init core cdev \t err = %d\n", ret);
+        goto out_delete_core_cdev;
+    }
 
 
     //create dev
@@ -523,7 +529,7 @@ static int __init bafs_init(void) {
     return ret;
 
 out_destroy_device:
-    device_destroy(bafs_core_class, MKDEV(MAJOR(bafs_major), BAFS_CORE_MINOR));
+    device_destroy(bafs_core_class, MKDEV(MAJOR(bafs_major), bafs_core_minor));
 out_delete_core_cdev:
     cdev_del(&bafs_core_cdev);
 out_group_fini:

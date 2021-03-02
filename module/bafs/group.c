@@ -22,7 +22,7 @@ void __bafs_group_release(struct kref* ref)
     BAFS_GROUP_DEBUG("Removing GROUP \t group: %p\n", group);
 
     spin_lock(&group->lock);
-    device_destroy(bafs_group_class, MKDEV(MAJOR(group->major), group->minor));
+    device_destroy(bafs_group_class, MKDEV(group->major, group->minor));
     for (j = 0; j < group->n_ctrls; j++) {
         WARN_ON(group->ctrls[j] == NULL);
         if(group->ctrls[j] == NULL) continue;
@@ -308,7 +308,7 @@ bafs_group_alloc(struct bafs_group ** out, int bafs_major, struct device * bafs_
     cdev_init(&group->cdev, &bafs_group_fops);
     group->cdev.owner = THIS_MODULE;
 
-    group->major = bafs_major;
+    group->major = MAJOR(bafs_major);
     ret = bafs_get_minor_number();
     if (ret < 0) {
         BAFS_CORE_ERR("Failed to get minor instance id \t err = %d\n", ret);
@@ -316,14 +316,14 @@ bafs_group_alloc(struct bafs_group ** out, int bafs_major, struct device * bafs_
     }
     group->minor = ret;
 
-    ret = cdev_add(&group->cdev, MKDEV(MAJOR(bafs_major), group->minor), 1);
+    ret = cdev_add(&group->cdev, MKDEV(group->major, group->minor), 1);
     if (ret < 0) {
         BAFS_CORE_ERR("Failed to init group cdev \t err = %d\n", ret);
         goto out_minor_put;
     }
     group->core_dev = bafs_core_device;
 
-    group->device = device_create(bafs_group_class, bafs_core_device, MKDEV(MAJOR(bafs_major),
+    group->device = device_create(bafs_group_class, bafs_core_device, MKDEV(group->major,
                                   group->minor), group, BAFS_GROUP_DEVICE_NAME, group->group_id);
     if(IS_ERR(group->device)) {
         ret = PTR_ERR(group->device);

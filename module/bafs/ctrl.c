@@ -101,6 +101,7 @@ bafs_ctrl_dma_map_mem(struct bafs_ctrl * ctrl, unsigned long vaddr, __u32 * n_dm
     mem     = bafs_get_mem(vaddr);
     if (!mem) {
         ret = -EINVAL;
+        BAFS_CTRL_ERR("Failed to find bafs_mem obj for dma map\n");
         goto out;
     }
 

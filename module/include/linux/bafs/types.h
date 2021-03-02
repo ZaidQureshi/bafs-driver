@@ -86,7 +86,8 @@ static inline struct device* bafs_get_ctrl(struct bafs_ctrl* ctrl) {
 enum STATE {
     STALE,
     LIVE,
-    DEAD
+    DEAD,
+    DEAD_CB
 };
 
 struct bafs_mem {
