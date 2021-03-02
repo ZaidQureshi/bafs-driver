@@ -98,35 +98,45 @@ void release_bafs_cuda_mem(void* data)
 
     struct bafs_mem_dma* dma;
     struct bafs_mem_dma* next;
-    struct bafs_ctrl* ctrl;
+    nvidia_p2p_page_table_t* pt = NULL;
+    nvidia_p2p_dma_mapping_t* map = NULL;
+
 
     mem = (struct bafs_mem*) data;
 
     if (mem) {
 
+        ACCESS_ONCE(mem->cb) = 1;
+        smp_wb();
+        pt = xchg(&mem->cuda_page_table, NULL);
+        if (pt) {
+            nvidia_p2p_free_page_table(mem->cuda_page_table);
+        }
+        list_for_each_entry_safe(dma, next, &mem->dma_list, dma_list) {
+            ACCESS_ONCE(dma->cb) = 1;
+            smp_wmb();
+            map = xchg(&dma->cuda_mapping, NULL);
+            if (map) {
+                nvidia_p2p_free_dma_mapping(map);
+            }
+        }
 
 
         spin_lock(&mem->lock);
 
-        list_for_each_entry_safe(dma, next, &mem->dma_list, dma_list) {
-            if (dma->cuda_mapping)
-                nvidia_p2p_free_dma_mapping(dma->cuda_mapping);
-            dma->cuda_mapping = NULL;
-            ctrl = dma->ctrl;
-            list_del(&dma->dma_list);
-            kfree_rcu(dma, rh);
-            bafs_ctrl_release(ctrl);
-            kref_put(&mem->ref, __bafs_mem_release_cuda);
+        if (mem->state != DEAD) {
+
+            if (mem->cuda_page_table) {
+
+                mem->cuda_page_table = NULL;
+            }
+            mem->state           = DEAD_CB;
         }
-        if (mem->cuda_page_table)
-            nvidia_p2p_free_page_table(mem->cuda_page_table);
-        mem->cuda_page_table = NULL;
-        mem->state           = DEAD;
         spin_unlock(&mem->lock);
 
 
 
-        //kref_put(&mem->ref, __bafs_mem_release_cuda);
+        kref_put(&mem->ref, __bafs_mem_release_cuda);
     }
 
 }
@@ -350,6 +360,7 @@ void unmap_dma(struct bafs_mem_dma* dma)
     struct bafs_mem* mem;
     struct pci_dev*  pdev;
     struct bafs_ctrl* ctrl;
+    BAFS_CORE_DEBUG("In unmap_dma\n");
 
     if (dma) {
         mem                  = dma->mem;
@@ -370,9 +381,10 @@ void unmap_dma(struct bafs_mem_dma* dma)
             }
             break;
         case BAFS_MEM_CUDA:
-            if (dma->cuda_mapping && mem->cuda_page_table) {
+            if (mem->state != DEAD_CB) {
                 nvidia_p2p_dma_unmap_pages(dma->ctrl->pdev, mem->cuda_page_table, dma->cuda_mapping);
-                //dma->cuda_mapping = NULL;
+                nvidia_p2p_free_dma_mapping(dma->cuda_mapping);
+                dma->cuda_mapping = NULL;
             }
             break;
         default:
