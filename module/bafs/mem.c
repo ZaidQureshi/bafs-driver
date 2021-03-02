@@ -132,7 +132,7 @@ int pin_bafs_cuda_mem(struct bafs_mem* mem, struct vm_area_struct* vma)
     int      i;
     unsigned map_gran;
 
-    BAFS_CORE_DEBUG("Pinning cuda mem\n");
+    BAFS_CORE_DEBUG("Pinning cuda mem vaddr: %lx\tsize:%lu\n\n", mem->vaddr, mem->size);
 
     ret = nvidia_p2p_get_pages(0, 0, mem->vaddr, mem->size, &mem->cuda_page_table,
                                release_bafs_cuda_mem, mem);

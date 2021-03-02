@@ -4,7 +4,7 @@
 
 #include <bafs.h>
 
-#include "cuda.h"
+#include <cuda.h>
 
 #define PAGE_SIZE 4096
 
@@ -20,8 +20,11 @@ int main(int argc, char* argv[] ) {
     unsigned orig_size;
     unsigned aligned_size;
     unsigned loc;
-    CUdeviceptr addr = 0;
-    CUdeviceptr aligned_addr = 0;
+    cudaError_t crt;
+    //CUdeviceptr addr = 0;
+    //CUdeviceptr aligned_addr = 0;
+    void* addr;
+    void* aligned_addr;
     const char* ctrl_name;
     struct bafs_dma_t dma_handle;
 
@@ -57,13 +60,21 @@ int main(int argc, char* argv[] ) {
         goto out_err;
     }
 
-    cu_ret = cuMemAlloc(&addr, aligned_size);
-    if (cu_ret != CUDA_SUCCESS) {
-        perror("Unable to create cu ctx");
+    /* cu_ret = cuMemAlloc(&addr, aligned_size); */
+    /* if (cu_ret != CUDA_SUCCESS) { */
+    /*     perror("Unable to create cu ctx"); */
+    /*     goto out_destroy_ctx; */
+    /* } */
+
+    crt = cudaMalloc(&addr, aligned_size);
+    if (crt != cudaSuccess) {
+        perror("cudaMalloc failed\n");
         goto out_destroy_ctx;
     }
 
-    aligned_addr = ALIGN_ADDR(addr);
+
+
+    aligned_addr = (void*)ALIGN_ADDR(((unsigned long)addr));
 
     printf("orig_addr: %llx\taligned_addr: %llx\n", addr, aligned_addr);
 
@@ -86,7 +97,7 @@ int main(int argc, char* argv[] ) {
 
     printf("Successfully registered and pinned memory\n");
 
-    dma_handle.dma_addrs = malloc(sizeof(void*) * ((orig_size + PAGE_SIZE - 1) / PAGE_SIZE));
+    dma_handle.dma_addrs = (void**) malloc(sizeof(void*) * ((orig_size + PAGE_SIZE - 1) / PAGE_SIZE));
     if (dma_handle.dma_addrs == NULL) {
         perror("Error allocating dma addresses");
         goto out_free_mem;
@@ -105,7 +116,7 @@ int main(int argc, char* argv[] ) {
     return EXIT_SUCCESS;
 
 out_free_mem:
-    cuMemFree(addr);
+    cudaFree (addr);
 out_destroy_ctx:
     cuCtxDestroy(cu_ctx);
 out_err:
