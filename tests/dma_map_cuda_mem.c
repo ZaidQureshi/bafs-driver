@@ -108,6 +108,8 @@ int main(int argc, char* argv[] ) {
     /* printf("Successfully dma mapped cpu memory\n"); */
 
 
+    cuMemFree(addr);
+
 
     return EXIT_SUCCESS;
 
