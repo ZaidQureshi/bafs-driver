@@ -34,8 +34,6 @@ int pin_bafs_cpu_mem(struct bafs_mem* mem, struct vm_area_struct* vma)
         goto out;
     }
 
-
-
     for(i = 0; i < mem->n_pages; i++) {
         mem->cpu_page_table[i] = alloc_page(GFP_HIGHUSER | __GFP_DMA | __GFP_ZERO);
         if (!mem->cpu_page_table[i]) {
@@ -134,9 +132,12 @@ int pin_bafs_cuda_mem(struct bafs_mem* mem, struct vm_area_struct* vma)
     int      i;
     unsigned map_gran;
 
+    BAFS_CORE_DEBUG("Pinning cuda mem\n");
+
     ret = nvidia_p2p_get_pages(0, 0, mem->vaddr, mem->size, &mem->cuda_page_table,
                                release_bafs_cuda_mem, mem);
     if(ret < 0) {
+        BAFS_CORE_DEBUG("nvidia_p2p_get_pages failed\n");
         goto out;
     }
 
@@ -146,6 +147,8 @@ int pin_bafs_cuda_mem(struct bafs_mem* mem, struct vm_area_struct* vma)
         BAFS_CORE_DEBUG("Failed to pin cuda memory due to incompatible page table version\n");
         goto out_delete_page_table;
     }
+
+
 
     switch (mem->cuda_page_table->page_size) {
     case NVIDIA_P2P_PAGE_SIZE_4KB:
@@ -169,6 +172,8 @@ int pin_bafs_cuda_mem(struct bafs_mem* mem, struct vm_area_struct* vma)
 
     mem->page_mask = ~(mem->page_size - 1);
 
+    BAFS_CORE_DEBUG("Pinned Cuda Mem: vaddr: %lx\tsize: %lu\tn_pages: %u\tpage_size: %lu\tfirst page phys addr: %llx\n",
+                    mem->vaddr, mem->size, mem->cuda_page_table->entries, mem->page_size, mem->cuda_page_table->pages[0]->physical_address);
 
     if ((mem->vaddr & mem->page_mask) != mem->vaddr) {
         ret                            = -EINVAL;
@@ -456,8 +461,11 @@ int pin_bafs_mem(struct vm_area_struct* vma, struct bafs_core_ctx* ctx)
 
     case BAFS_MEM_CUDA:
         ret = pin_bafs_cuda_mem(mem, vma);
-        if (ret)
+        if (ret) {
+            BAFS_CORE_DEBUG("pin_bafs_cuda_mem failed \t ret = %d\n", ret);
             goto out_release;
+        }
+
         break;
 
     default:

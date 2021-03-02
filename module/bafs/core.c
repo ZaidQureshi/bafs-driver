@@ -201,12 +201,15 @@ static int bafs_core_mmap(struct file* file, struct vm_area_struct* vma) {
     int                   ret = 0;
     struct bafs_core_ctx* ctx;
 
+    BAFS_CORE_DEBUG("Starting bafs_core_mmap\n");
     ctx     = (struct bafs_core_ctx*) file->private_data;
     if (!ctx) {
         ret = -EFAULT;
+        BAFS_CORE_DEBUG("failed to get ctx\n");
         goto out;
     }
 
+    BAFS_CORE_DEBUG("got ctx\n");
 
     ret = pin_bafs_mem(vma, ctx);
     if (ret < 0) {
