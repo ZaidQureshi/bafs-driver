@@ -181,7 +181,7 @@ int pin_bafs_cuda_mem(struct bafs_mem* mem, struct vm_area_struct* vma)
         goto out_delete_page_table;
     }
 
-     mem->n_pages = (mem->size + mem->page_size - 1) >> mem->page_size;
+     mem->n_pages = (mem->size + mem->page_size - 1) >> mem->page_shift;
 
     if (mem->n_pages != mem->cuda_page_table->entries) {
         ret = -ENOMEM;
