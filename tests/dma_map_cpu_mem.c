@@ -4,44 +4,82 @@
 
 #include <bafs.h>
 
-#define PAGE_SIZE 4096
+#include <cuda.h>
 
+#define PAGE_SIZE 65536
+
+#define ALIGN_SIZE(x) (x + PAGE_SIZE)
+#define ALIGN_ADDR(a) ((a + PAGE_SIZE) & ~(PAGE_SIZE - 1))
 
 int main(int argc, char* argv[] ) {
+    CUresult cu_ret;
+    CUdevice cu_device;
+    CUcontext cu_ctx;
     int ret = 0;
-    unsigned size;
+    unsigned gpu_id;
+    unsigned orig_size;
+    unsigned aligned_size;
     unsigned loc;
-    void* addr = NULL;
+    //cudaError_t crt;
+    CUdeviceptr addr = 0;
+    CUdeviceptr aligned_addr = 0;
     const char* ctrl_name;
     struct bafs_dma_t dma_handle;
 
     struct bafs_ctrl_t ctrl_handle;
 
-    if (argc < 3) {
-        fprintf(stderr, "Please specify the memory size and controller.\n");
+    if (argc < 4) {
+        fprintf(stderr, "Please specify the memory size, controller, and gpu id.\n");
         exit(EXIT_FAILURE);
     }
 
-    size = strtoul(argv[1], NULL, 0);
+    orig_size = strtoul(argv[1], NULL, 0);
+
+    aligned_size = ALIGN_SIZE(orig_size);
     ctrl_name = argv[2];
-    loc = BAFS_MEM_CPU;
+    gpu_id = strtoul(argv[3], NULL, 0);
+    loc = BAFS_MEM_CUDA;
 
-
-
-    ret = posix_memalign(&addr, 4096, size);
-    if (ret) {
-        perror("Unable to allocate cpu memory with posix_memalign");
-        exit(EXIT_FAILURE);
+    cu_ret = cuInit(0);
+    if (cu_ret != CUDA_SUCCESS) {
+        perror("Unable to init cu driver");
+        goto out_err;
     }
 
+    cu_ret = cuDeviceGet(&cu_device, gpu_id);
+    if (cu_ret != CUDA_SUCCESS) {
+        perror("Unable to get cu device");
+        goto out_err;
+    }
+
+    cu_ret = cuDevicePrimaryCtxRetain(&cu_ctx, cu_device);
+    if (cu_ret != CUDA_SUCCESS) {
+        perror("Unable to retain cu ctx");
+        goto out_err;
+    }
+
+    cu_ret = cuCtxSetCurrent(cu_ctx);
+    if (cu_ret != CUDA_SUCCESS) {
+        perror("Unable to set current cu ctx");
+        goto out_err;
+    }
+
+    cu_ret = cuMemAlloc(&addr, aligned_size);
+    if (cu_ret != CUDA_SUCCESS) {
+        perror("Unable to cuMemAlloc");
+        goto out_err;
+    }
+
+    aligned_addr = ALIGN_ADDR((addr));
+
+    printf("orig_addr: %llx\taligned_addr: %llx\n", addr, aligned_addr);
 
 
-
-    ret = bafs_core_map(&addr, size, loc);
+    ret = bafs_core_map((void**)&aligned_addr, orig_size, loc);
 
     if (ret) {
         perror("Error while pinning memory");
-        exit(EXIT_FAILURE);
+        goto out_free_mem;
     }
 
     printf("Successfully registered and pinned memory\n");
@@ -50,28 +88,34 @@ int main(int argc, char* argv[] ) {
     ret = bafs_ctrl_open(ctrl_name, &ctrl_handle);
     if (ret) {
         perror("Error while openning ctrl");
-        exit(EXIT_FAILURE);
+        goto out_free_mem;
     }
 
     printf("Successfully registered and pinned memory\n");
 
-    dma_handle.dma_addrs = malloc(sizeof(void*) * ((size + PAGE_SIZE - 1) / PAGE_SIZE));
+    dma_handle.dma_addrs = (void**) malloc(sizeof(void*) * ((orig_size + PAGE_SIZE - 1) / PAGE_SIZE));
     if (dma_handle.dma_addrs == NULL) {
         perror("Error allocating dma addresses");
-        exit(EXIT_FAILURE);
+        goto out_free_mem;
     }
 
-    ret = bafs_ctrl_dma_map_mem(addr, &dma_handle, &ctrl_handle);
-    if (ret) {
-        perror("Error while dma mapping memory");
-        exit(EXIT_FAILURE);
-    }
+    /* ret = bafs_ctrl_dma_map_mem((void*)aligned_addr, &dma_handle, &ctrl_handle); */
+    /* if (ret) { */
+    /*     perror("Error while dma mapping memory"); */
+    /*     goto out_free_mem; */
+    /* } */
 
-    printf("Successfully dma mapped cpu memory\n");
+    /* printf("Successfully dma mapped cpu memory\n"); */
 
+
+    cuMemFree(addr);
 
 
     return EXIT_SUCCESS;
 
+out_free_mem:
+    cuMemFree(addr);
+out_err:
+    exit(EXIT_FAILURE);
 
 }
