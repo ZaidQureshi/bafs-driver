@@ -85,7 +85,7 @@ void __bafs_mem_release_cuda(struct kref* ref)
 
         if (mem->cuda_page_table)
             nvidia_p2p_free_page_table(mem->cuda_page_table);
-
+        mem->cuda_page_table = NULL;
         kfree_rcu(mem, rh);
         bafs_put_ctx(ctx);
     }
@@ -98,30 +98,33 @@ void release_bafs_cuda_mem(void* data)
 
     struct bafs_mem_dma* dma;
     struct bafs_mem_dma* next;
+    struct bafs_ctrl* ctrl;
 
     mem = (struct bafs_mem*) data;
 
+    if (mem) {
 
-    spin_lock(&mem->lock);
+        spin_lock(&mem->lock);
 
-    list_for_each_entry_safe(dma, next, &mem->dma_list, dma_list) {
-        if (dma->cuda_mapping)
-            nvidia_p2p_free_dma_mapping(dma->cuda_mapping);
-        dma->cuda_mapping = NULL;
-        list_del(&dma->dma_list);
-        kfree_rcu(dma, rh);
-        bafs_ctrl_release(dma->ctrl);
+        list_for_each_entry_safe(dma, next, &mem->dma_list, dma_list) {
+            if (dma->cuda_mapping)
+                nvidia_p2p_free_dma_mapping(dma->cuda_mapping);
+            dma->cuda_mapping = NULL;
+            ctrl = dma->ctrl;
+            list_del(&dma->dma_list);
+            kfree_rcu(dma, rh);
+            bafs_ctrl_release(ctrl);
+            kref_put(&mem->ref, __bafs_mem_release_cuda);
+        }
+        if (mem->cuda_page_table)
+            nvidia_p2p_free_page_table(mem->cuda_page_table);
+        mem->cuda_page_table = NULL;
+        mem->state           = DEAD;
+        spin_unlock(&mem->lock);
+
+
         kref_put(&mem->ref, __bafs_mem_release_cuda);
     }
-    if (mem->cuda_page_table)
-        nvidia_p2p_free_page_table(mem->cuda_page_table);
-    mem->cuda_page_table = NULL;
-    mem->state           = DEAD;
-    spin_unlock(&mem->lock);
-
-
-    kref_put(&mem->ref, __bafs_mem_release_cuda);
-
 
 }
 
