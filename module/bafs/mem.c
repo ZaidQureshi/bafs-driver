@@ -68,28 +68,28 @@ out:
 }
 
 
-static 
-void __bafs_mem_release_cuda(struct kref* ref)
-{
-    struct bafs_mem*      mem;
-    struct bafs_core_ctx* ctx;
+/* static  */
+/* void __bafs_mem_release_cuda(struct kref* ref) */
+/* { */
+/*     struct bafs_mem*      mem; */
+/*     struct bafs_core_ctx* ctx; */
 
-    mem     = container_of(ref, struct bafs_mem, ref);
-    if (mem) {
-        ctx = mem->ctx;
-        spin_lock(&ctx->lock);
-        list_del(&mem->mem_list);
-        xa_erase(&ctx->bafs_mem_xa, mem->mem_id);
-        spin_unlock(&ctx->lock);
+/*     mem     = container_of(ref, struct bafs_mem, ref); */
+/*     if (mem) { */
+/*         ctx = mem->ctx; */
+/*         spin_lock(&ctx->lock); */
+/*         list_del(&mem->mem_list); */
+/*         xa_erase(&ctx->bafs_mem_xa, mem->mem_id); */
+/*         spin_unlock(&ctx->lock); */
 
 
-        if (mem->cuda_page_table)
-            nvidia_p2p_free_page_table(mem->cuda_page_table);
-        mem->cuda_page_table = NULL;
-        kfree_rcu(mem, rh);
-        bafs_put_ctx(ctx);
-    }
-}
+/*         if (mem->cuda_page_table) */
+/*             nvidia_p2p_free_page_table(mem->cuda_page_table); */
+/*         mem->cuda_page_table = NULL; */
+/*         kfree_rcu(mem, rh); */
+/*         bafs_put_ctx(ctx); */
+/*     } */
+/* } */
 
 static
 void release_bafs_cuda_mem(void* data)
@@ -106,37 +106,24 @@ void release_bafs_cuda_mem(void* data)
 
     if (mem) {
 
-        ACCESS_ONCE(mem->cb) = 1;
-        smp_wb();
-        pt = xchg(&mem->cuda_page_table, NULL);
-        if (pt) {
-            nvidia_p2p_free_page_table(mem->cuda_page_table);
-        }
-        list_for_each_entry_safe(dma, next, &mem->dma_list, dma_list) {
-            ACCESS_ONCE(dma->cb) = 1;
-            smp_wmb();
-            map = xchg(&dma->cuda_mapping, NULL);
-            if (map) {
-                nvidia_p2p_free_dma_mapping(map);
-            }
-        }
 
 
         spin_lock(&mem->lock);
 
         if (mem->state != DEAD) {
-
-            if (mem->cuda_page_table) {
-
-                mem->cuda_page_table = NULL;
+            list_for_each_entry_safe(dma, next, &mem->dma_list, dma_list) {
+                if (dma->cuda_mapping) {
+                    nvidia_p2p_free_dma_mapping(dma->cuda_mapping);
+                    dma->cuda_mapping = NULL;
+                }
             }
             mem->state           = DEAD_CB;
+            nvidia_p2p_free_page_table(mem->cuda_page_table);
+            mem->cuda_page_table = NULL;
         }
         spin_unlock(&mem->lock);
 
 
-
-        kref_put(&mem->ref, __bafs_mem_release_cuda);
     }
 
 }
@@ -249,7 +236,7 @@ void __bafs_mem_release(struct kref* ref)
         spin_unlock(&ctx->lock);
 
         spin_lock(&mem->lock);
-        if (mem->state == LIVE) {
+        if (mem->state != STALE) {
             switch (mem->loc) {
             case BAFS_MEM_CPU:
                 if (mem->cpu_page_table) {
@@ -260,8 +247,11 @@ void __bafs_mem_release(struct kref* ref)
                 }
                 break;
             case BAFS_MEM_CUDA:
-                if (mem->cuda_page_table)
+                if ((mem->state != DEAD_CB) && (mem->cuda_page_table)) {
                     nvidia_p2p_put_pages(0, 0, mem->vaddr, mem->cuda_page_table);
+                    nvidia_p2p_free_page_table(mem->cuda_page_table);
+                    mem->cuda_page_table = NULL;
+                }
                 break;
             default:
                 break;
@@ -381,7 +371,7 @@ void unmap_dma(struct bafs_mem_dma* dma)
             }
             break;
         case BAFS_MEM_CUDA:
-            if (mem->state != DEAD_CB) {
+            if ((mem->state != DEAD_CB) && (dma->cuda_mapping)) {
                 nvidia_p2p_dma_unmap_pages(dma->ctrl->pdev, mem->cuda_page_table, dma->cuda_mapping);
                 nvidia_p2p_free_dma_mapping(dma->cuda_mapping);
                 dma->cuda_mapping = NULL;
@@ -422,7 +412,6 @@ void bafs_mem_release(struct vm_area_struct* vma)
         unmap_dma(dma);
         kref_put(&mem->ref, __bafs_mem_release);
     }
-    mem->state = DEAD;
 
     spin_unlock(&mem->lock);
 

@@ -312,7 +312,7 @@ struct bafs_mem* bafs_get_mem(const unsigned long vaddr) {
     list_for_each_entry_safe(mem_, next, &ctx->mem_list, mem_list) {
         kref_get(&mem_->ref);
         spin_lock(&mem_->lock);
-        if (mem_->vaddr == vaddr) {
+        if ((mem_->vaddr == vaddr) && (mem_->state != DEAD) && (mem_->state != DEAD_CB)) {
             mem = mem_;
             spin_unlock(&mem_->lock);
 
