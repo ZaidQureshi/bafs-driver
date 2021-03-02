@@ -104,6 +104,8 @@ void release_bafs_cuda_mem(void* data)
 
     if (mem) {
 
+
+
         spin_lock(&mem->lock);
 
         list_for_each_entry_safe(dma, next, &mem->dma_list, dma_list) {
@@ -123,7 +125,8 @@ void release_bafs_cuda_mem(void* data)
         spin_unlock(&mem->lock);
 
 
-        kref_put(&mem->ref, __bafs_mem_release_cuda);
+
+        //kref_put(&mem->ref, __bafs_mem_release_cuda);
     }
 
 }
@@ -350,7 +353,7 @@ void unmap_dma(struct bafs_mem_dma* dma)
 
     if (dma) {
         mem                  = dma->mem;
-        list_del_init(&dma->dma_list);
+        list_del(&dma->dma_list);
         switch (mem->loc) {
         case BAFS_MEM_CPU:
             if (dma->addrs) {
