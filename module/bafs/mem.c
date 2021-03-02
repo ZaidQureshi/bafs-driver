@@ -185,7 +185,7 @@ int pin_bafs_cuda_mem(struct bafs_mem* mem, struct vm_area_struct* vma)
 
     if (mem->n_pages != mem->cuda_page_table->entries) {
         ret = -ENOMEM;
-        BAFS_CORE_DEBUG("Failed to pin cuda memory due to unavailable pages\n");
+        BAFS_CORE_DEBUG("Failed to pin cuda memory due to unavailable pages, requested %u pages, got %u pages\n", mem->n_pages, mem->cuda_page_table_entries);
         goto out_delete_page_table;
     }
 
