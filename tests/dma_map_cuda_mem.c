@@ -20,11 +20,9 @@ int main(int argc, char* argv[] ) {
     unsigned orig_size;
     unsigned aligned_size;
     unsigned loc;
-    cudaError_t crt;
-    //CUdeviceptr addr = 0;
-    //CUdeviceptr aligned_addr = 0;
-    void* addr;
-    void* aligned_addr;
+    //cudaError_t crt;
+    CUdeviceptr addr = 0;
+    CUdeviceptr aligned_addr = 0;
     const char* ctrl_name;
     struct bafs_dma_t dma_handle;
 
@@ -54,25 +52,23 @@ int main(int argc, char* argv[] ) {
         goto out_err;
     }
 
-    cu_ret = cuCtxCreate(&cu_ctx, 0, cu_device);
+    cu_ret = cuDevicePrimaryCtxRetain(&cu_ctx, cu_device);
     if (cu_ret != CUDA_SUCCESS) {
-        perror("Unable to create cu ctx");
+        perror("Unable to retain cu ctx");
         goto out_err;
     }
 
-    /* cu_ret = cuMemAlloc(&addr, aligned_size); */
-    /* if (cu_ret != CUDA_SUCCESS) { */
-    /*     perror("Unable to create cu ctx"); */
-    /*     goto out_destroy_ctx; */
-    /* } */
-
-    crt = cudaMalloc(&addr, aligned_size);
-    if (crt != cudaSuccess) {
-        perror("cudaMalloc failed\n");
-        goto out_destroy_ctx;
+    cu_ret = cuCtxSetCurrent(cu_ctx);
+    if (cu_ret != CUDA_SUCCESS) {
+        perror("Unable to set current cu ctx");
+        goto out_err;
     }
 
-
+    cu_ret = cuMemAlloc(&addr, aligned_size);
+    if (cu_ret != CUDA_SUCCESS) {
+        perror("Unable to cuMemAlloc");
+        goto out_err;
+    }
 
     aligned_addr = (void*)ALIGN_ADDR(((unsigned long)addr));
 
@@ -116,9 +112,7 @@ int main(int argc, char* argv[] ) {
     return EXIT_SUCCESS;
 
 out_free_mem:
-    cudaFree (addr);
-out_destroy_ctx:
-    cuCtxDestroy(cu_ctx);
+    cuMemFree(addr);
 out_err:
     exit(EXIT_FAILURE);
 
