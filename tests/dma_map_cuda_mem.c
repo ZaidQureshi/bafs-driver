@@ -99,13 +99,13 @@ int main(int argc, char* argv[] ) {
         goto out_free_mem;
     }
 
-    ret = bafs_ctrl_dma_map_mem((void*)aligned_addr, &dma_handle, &ctrl_handle);
-    if (ret) {
-        perror("Error while dma mapping memory");
-        goto out_free_mem;
-    }
+    /* ret = bafs_ctrl_dma_map_mem((void*)aligned_addr, &dma_handle, &ctrl_handle); */
+    /* if (ret) { */
+    /*     perror("Error while dma mapping memory"); */
+    /*     goto out_free_mem; */
+    /* } */
 
-    printf("Successfully dma mapped cpu memory\n");
+    /* printf("Successfully dma mapped cpu memory\n"); */
 
 
 
