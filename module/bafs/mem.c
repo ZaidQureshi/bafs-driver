@@ -98,9 +98,6 @@ void release_bafs_cuda_mem(void* data)
 
     struct bafs_mem_dma* dma;
     struct bafs_mem_dma* next;
-    nvidia_p2p_page_table_t* pt = NULL;
-    nvidia_p2p_dma_mapping_t* map = NULL;
-
 
     mem = (struct bafs_mem*) data;
 

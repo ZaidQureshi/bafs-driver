@@ -20,6 +20,7 @@ int main(int argc, char* argv[] ) {
     unsigned orig_size;
     unsigned aligned_size;
     unsigned loc;
+    int n_pages;
     //cudaError_t crt;
     CUdeviceptr addr = 0;
     CUdeviceptr aligned_addr = 0;
@@ -91,21 +92,25 @@ int main(int argc, char* argv[] ) {
         goto out_free_mem;
     }
 
-    printf("Successfully registered and pinned memory\n");
+    printf("Successfully opened ctrl file\n");
 
-    dma_handle.dma_addrs = (void**) malloc(sizeof(void*) * ((orig_size + PAGE_SIZE - 1) / PAGE_SIZE));
+    n_pages =(orig_size + PAGE_SIZE - 1) / PAGE_SIZE;
+
+    dma_handle.dma_addrs = (void**) malloc(sizeof(void*) * n_pages);
     if (dma_handle.dma_addrs == NULL) {
         perror("Error allocating dma addresses");
         goto out_free_mem;
     }
 
-    /* ret = bafs_ctrl_dma_map_mem((void*)aligned_addr, &dma_handle, &ctrl_handle); */
-    /* if (ret) { */
-    /*     perror("Error while dma mapping memory"); */
-    /*     goto out_free_mem; */
-    /* } */
+    dma_handle.n_dma_addrs = n_pages;
 
-    /* printf("Successfully dma mapped cpu memory\n"); */
+    ret = bafs_ctrl_dma_map_mem((void*)aligned_addr, &dma_handle, &ctrl_handle);
+    if (ret) {
+        perror("Error while dma mapping memory");
+        goto out_free_mem;
+    }
+
+    printf("Successfully dma mapped cuda memory\n");
 
 
     cuMemFree(addr);
