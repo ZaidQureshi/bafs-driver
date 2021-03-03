@@ -153,7 +153,7 @@ bafs_ctrl_dma_map_mem(struct bafs_ctrl * ctrl, unsigned long vaddr, __u32 * n_dm
             *n_dma_addrs += mem->n_pages;
 
 
-        if (copy_to_user(dma_addrs_user, dma->addrs, (*n_dma_addrs)*sizeof(unsigned long))) {
+        if (copy_to_user(dma_addrs_user, dma->addrs, (mem->n_pages)*sizeof(unsigned long))) {
             ret = -EFAULT;
             BAFS_CTRL_ERR("Failed to copy %u dma addrs to user\n", *n_dma_addrs);
             goto out_unmap;
