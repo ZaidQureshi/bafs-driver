@@ -78,7 +78,7 @@ bafs_group_dma_map_mem(struct bafs_group* group, void __user* user_params)
 
 
     for (i  = 0; i < group->n_ctrls; i++) {
-        //ret = bafs_ctrl_dma_map_mem(group->ctrls[i], params.vaddr, &params.n_dma_addrs, params.dma_addrs + (n_dma_addrs_per_ctrl * i), &dmas[i], i);
+        ret = bafs_ctrl_dma_map_mem(group->ctrls[i], params.vaddr, &params.n_dma_addrs, params.dma_addrs + (n_dma_addrs_per_ctrl * i), &dmas[i], i);
         if (ret < 0) {
             goto out_unmap_mems;
         }
@@ -99,7 +99,7 @@ bafs_group_dma_map_mem(struct bafs_group* group, void __user* user_params)
     return ret;
 out_unmap_mems:
     for (i = i - 1; i >= 0; i--) {
-        //bafs_ctrl_dma_unmap_mem(dmas[i]);
+        bafs_ctrl_dma_unmap_mem(dmas[i]);
     }
 //out_free_mem:
     kfree(dmas);

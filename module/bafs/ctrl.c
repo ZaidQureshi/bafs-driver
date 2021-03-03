@@ -163,6 +163,7 @@ bafs_ctrl_dma_map_mem(struct bafs_ctrl * ctrl, unsigned long vaddr, __u32 * n_dm
     case BAFS_MEM_CUDA:
         ret      = nvidia_p2p_dma_map_pages(ctrl->pdev, mem->cuda_page_table, &dma->cuda_mapping);
         if (ret != 0) {
+            BAFS_CTRL_ERR("nvidia_p2p_dma_map_pages failed \t ret = %d\n", ret);
             goto out_delete_dma;
         }
         if (ctrl_id      == 0)
@@ -171,11 +172,11 @@ bafs_ctrl_dma_map_mem(struct bafs_ctrl * ctrl, unsigned long vaddr, __u32 * n_dm
             *n_dma_addrs += dma->cuda_mapping->entries;
 
 
-        if (copy_to_user(dma_addrs_user, dma->cuda_mapping->dma_addresses, (*n_dma_addrs)*sizeof(unsigned long))) {
-            ret = -EFAULT;
-            BAFS_CTRL_ERR("Failed to copy dma addrs to user\n");
-            goto out_unmap;
-        }
+        /* if (copy_to_user(dma_addrs_user, dma->cuda_mapping->dma_addresses, (*n_dma_addrs)*sizeof(unsigned long))) { */
+        /*     ret = -EFAULT; */
+        /*     BAFS_CTRL_ERR("Failed to copy dma addrs to user\n"); */
+        /*     goto out_unmap; */
+        /* } */
         break;
     default:
         ret = -EINVAL;

@@ -98,7 +98,7 @@ int main(int argc, char* argv[] ) {
         perror("Error allocating dma addresses");
         goto out_free_mem;
     }
-
+    dma_handle.n_dma_addrs = 10;
     /* ret = bafs_ctrl_dma_map_mem((void*)aligned_addr, &dma_handle, &ctrl_handle); */
     /* if (ret) { */
     /*     perror("Error while dma mapping memory"); */
