@@ -86,7 +86,7 @@ bafs_ctrl_release(struct bafs_ctrl * ctrl)
 
 
 int
-bafs_ctrl_dma_map_mem(struct bafs_ctrl * ctrl, unsigned long vaddr, __u32 * n_dma_addrs,
+bafs_ctrl_dma_map_mem(struct bafs_ctrl * ctrl, struct bafs_ctx* ctx, unsigned long vaddr, __u32 * n_dma_addrs,
                       unsigned long __user * dma_addrs_user, struct bafs_mem_dma ** dma_,
                       const int ctrl_id)
 {
@@ -98,7 +98,7 @@ bafs_ctrl_dma_map_mem(struct bafs_ctrl * ctrl, unsigned long vaddr, __u32 * n_dm
     unsigned               map_gran;
 
 
-    mem     = bafs_get_mem(vaddr);
+    mem     = bafs_get_mem_with_ctx(vaddr, ctx);
     if (!mem) {
         ret = -EINVAL;
         BAFS_CTRL_ERR("Failed to find bafs_mem obj for dma map\n");
@@ -225,12 +225,12 @@ bafs_ctrl_dma_unmap_mem(struct bafs_mem_dma* dma)
 }
 
 static long
-__bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, void __user * user_params)
+__bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, struct bafs_ctx* ctx, void __user * user_params)
 {
     long ret = 0;
 
     struct bafs_mem_dma*                    dma;
-    struct BAFS_CTRL_IOC_DMA_MAP_MEM_PARAMS params;
+    struct BAFS_IOC_DMA_MAP_MEM_PARAMS params;
 
     if (copy_from_user(&params, user_params, sizeof(params))) {
         ret = -EFAULT;
@@ -238,7 +238,7 @@ __bafs_ctrl_dma_map_mem(struct bafs_ctrl* ctrl, void __user * user_params)
         goto out;
     }
 
-    ret = bafs_ctrl_dma_map_mem(ctrl, params.vaddr, &params.n_dma_addrs, params.dma_addrs, &dma, 0);
+    ret = bafs_ctrl_dma_map_mem(ctrl, ctx, params.vaddr, &params.n_dma_addrs, params.dma_addrs, &dma, 0);
     if (ret < 0) {
         goto out;
     }
@@ -266,12 +266,18 @@ bafs_ctrl_ioctl(struct file* file, unsigned int cmd, unsigned long arg)
     long ret = 0;
 
     void __user*      argp = (void __user*) arg;
-    struct bafs_ctrl* ctrl = file->private_data;
+    struct bafs_ctrl* ctrl;
+    struct bafs_ctx* ctx;
 
-    if (!ctrl) {
+    struct bafs_ctrl_ctx* ctrl_ctx = file->private_data;
+
+    if (!ctrl_ctx) {
         ret = -EINVAL;
         goto out;
     }
+
+    ctrl = ctrl_ctx->ctrl;
+    ctx = ctrl_ctx->ctx;
     bafs_get_ctrl(ctrl);
 
     BAFS_CTRL_DEBUG("IOCTL called \t cmd = %u\n", cmd);
@@ -285,8 +291,15 @@ bafs_ctrl_ioctl(struct file* file, unsigned int cmd, unsigned long arg)
     }
 
     switch (cmd) {
+    case BAFS_CTRL_IOC_REG_MEM:
+        ret = bafs_core_reg_mem(argp, ctx);
+        if (ret < 0) {
+            BAFS_CTRL_ERR("IOCTL to register memory failed\n");
+            goto out;
+        }
+        break;
     case BAFS_CTRL_IOC_DMA_MAP_MEM:
-        ret = __bafs_ctrl_dma_map_mem(ctrl, argp);
+        ret = __bafs_ctrl_dma_map_mem(ctrl, ctx, argp);
         if (ret < 0) {
             BAFS_CTRL_ERR("IOCTL to dma map memory failed\n");
             goto out_release_ctrl;
@@ -312,6 +325,8 @@ bafs_ctrl_open(struct inode* inode, struct file* file)
 {
     int ret = 0;
 
+    struct bafs_ctrl_ctx* ctrl_ctx;
+    struct bafs_ctx* ctx;
     struct bafs_ctrl* ctrl = container_of(inode->i_cdev, struct bafs_ctrl, cdev);
 
     if (!ctrl) {
@@ -319,8 +334,28 @@ bafs_ctrl_open(struct inode* inode, struct file* file)
         goto out;
     }
     bafs_get_ctrl(ctrl);
-    file->private_data = ctrl;
+
+    ctrl_ctx = kzalloc(sizeof(*ctrl_ctx), GFP_KERNEL);
+    if(ctrl_ctx == NULL) {
+        ret = -ENOMEM;
+        goto out_put_ctrl;
+    }
+
+    ctx = bafs_get_ctx();
+    if (ctx == NULL) {
+        ret = -EINVAL;
+        goto out_free_ctrl_ctx;
+    }
+
+    ctrl_ctx->ctrl = ctrl;
+    ctrl_ctx->ctx = ctx;
+
+    file->private_data = ctrl_ctx;
     return ret;
+out_free_ctrl_ctx:
+    kfree(ctrl_ctx);
+out_put_ctrl:
+    bafs_ctrl_release(ctrl);
 out:
     return ret;
 }
@@ -330,17 +365,53 @@ static int
 bafs_ctrl_file_release(struct inode* inode, struct file* file)
 {
     int ret = 0;
+    struct bafs_ctx* ctx;
+    struct bafs_mem*      mem;
+    struct bafs_mem*      next;
+    struct bafs_ctrl_ctx* ctrl_ctx = (struct bafs_ctrl_ctx*) file->private_data;
 
-    struct bafs_ctrl* ctrl = (struct bafs_ctrl*) file->private_data;
-
-    if (!ctrl) {
+    if (!ctrl_ctx) {
         ret = -EINVAL;
         goto out;
     }
-    bafs_ctrl_release(ctrl);
+
+    ctx = ctrl_ctx->ctx;
+    spin_lock(&ctx->lock);
+    list_for_each_entry_safe(mem, next, &ctx->mem_list, mem_list) {
+        spin_lock(&mem->lock);
+        if (mem->state == STALE) {
+
+            list_del_init(&mem->mem_list);
+
+            xa_erase(&ctx->bafs_mem_xa, mem->mem_id);
+            BAFS_CTRL_DEBUG("Deleting Stale mem registeration\n");
+            spin_unlock(&mem->lock);
+            kfree_rcu(mem, rh);
+            bafs_put_ctx(ctx);
+
+        }
+        else {
+            spin_unlock(&mem->lock);
+        }
+
+
+    }
+
+    spin_unlock(&ctx->lock);
+
+    bafs_put_ctx(ctx);
+    BAFS_CTRL_DEBUG("Closed core and cleaned ctx\n");
+
+
+    bafs_ctrl_release(ctrl_ctx->ctrl);
+    kfree(ctrl_ctx);
+    file->private_data = NULL;
+    ret = 0;
     return ret;
 out:
     return ret;
+
+
 }
 
 
@@ -375,8 +446,8 @@ __bafs_ctrl_mmap(struct file* file, struct vm_area_struct* vma)
     int ret = 0;
 
     unsigned long map_size = 0;
-
-    struct bafs_ctrl* ctrl = (struct bafs_ctrl*) file->private_data;
+    struct bafs_ctrl_ctx* ctx= (struct bafs_ctrl_ctx*) file->private_data;
+    struct bafs_ctrl* ctrl = ctx->ctrl;
 
     if (!ctrl) {
         ret = -EINVAL;

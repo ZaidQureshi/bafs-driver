@@ -72,7 +72,7 @@ out:
 /* void __bafs_mem_release_cuda(struct kref* ref) */
 /* { */
 /*     struct bafs_mem*      mem; */
-/*     struct bafs_core_ctx* ctx; */
+/*     struct bafs_ctx* ctx; */
 
 /*     mem     = container_of(ref, struct bafs_mem, ref); */
 /*     if (mem) { */
@@ -219,7 +219,7 @@ static
 void __bafs_mem_release(struct kref* ref)
 {
     struct bafs_mem*      mem;
-    struct bafs_core_ctx* ctx;
+    struct bafs_ctx* ctx;
 
     int i;
 
@@ -269,12 +269,12 @@ bafs_mem_put(struct bafs_mem * mem)
     kref_put(&mem->ref, __bafs_mem_release);
 }
 
-long bafs_core_reg_mem(void __user* user_params, struct bafs_core_ctx* ctx)
+long bafs_core_reg_mem(void __user* user_params, struct bafs_ctx* ctx)
 {
     long ret = 0;
 
     struct bafs_mem*                    mem;
-    struct BAFS_CORE_IOC_REG_MEM_PARAMS params;
+    struct BAFS_IOC_REG_MEM_PARAMS params;
 
     if (copy_from_user(&params, user_params, sizeof(params))) {
         ret = -EFAULT;
@@ -391,7 +391,7 @@ static
 void bafs_mem_release(struct vm_area_struct* vma)
 {
     struct bafs_mem*      mem;
-    struct bafs_core_ctx* ctx;
+    struct bafs_ctx* ctx;
     struct bafs_mem_dma*  dma;
     struct bafs_mem_dma*  next;
 
@@ -427,7 +427,7 @@ const struct vm_operations_struct bafs_mem_ops = {
 };
 
 
-int pin_bafs_mem(struct vm_area_struct* vma, struct bafs_core_ctx* ctx)
+int pin_bafs_mem(struct vm_area_struct* vma, struct bafs_ctx* ctx)
 {
     int ret = 0;
 

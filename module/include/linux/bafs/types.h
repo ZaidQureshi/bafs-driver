@@ -21,7 +21,8 @@
 
 extern const struct pci_device_id pci_dev_id_table[];
 
-struct bafs_core_ctx {
+
+struct bafs_ctx {
     spinlock_t       lock;
     struct xarray    bafs_mem_xa;
     struct list_head mem_list;
@@ -42,7 +43,14 @@ struct bafs_group {
     struct device*     core_dev;
     struct bafs_ctrl** ctrls;
     unsigned int       n_ctrls;
+    struct bafs_ctx*    ctx;
 };
+
+struct bafs_group_ctx {
+    struct bafs_group* group;
+    struct bafs_ctx*    ctx;
+};
+
 
 static inline void bafs_get_group(struct bafs_group* group) {
     BAFS_GROUP_DEBUG("In bafs_get_group: %u \t kref_bef: %u\n", group->group_id, kref_read(&group->ref));
@@ -66,6 +74,12 @@ struct bafs_ctrl {
     struct rcu_head  rh;
     struct kref      ref;
     struct device* core_dev;
+
+};
+
+struct bafs_ctrl_ctx {
+    struct bafs_ctrl* ctrl;
+    struct bafs_ctx*    ctx;
 };
 
 
@@ -91,7 +105,7 @@ enum STATE {
 };
 
 struct bafs_mem {
-    struct bafs_core_ctx*    ctx;
+    struct bafs_ctx*    ctx;
     spinlock_t               lock;
     struct rcu_head          rh;
     struct list_head         mem_list;

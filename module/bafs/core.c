@@ -199,10 +199,10 @@ out:
 static int bafs_core_mmap(struct file* file, struct vm_area_struct* vma) {
 
     int                   ret = 0;
-    struct bafs_core_ctx* ctx;
+    struct bafs_ctx* ctx;
 
     BAFS_CORE_DEBUG("Starting bafs_core_mmap\n");
-    ctx     = (struct bafs_core_ctx*) file->private_data;
+    ctx     = (struct bafs_ctx*) file->private_data;
     if (!ctx) {
         ret = -EFAULT;
         BAFS_CORE_DEBUG("failed to get ctx\n");
@@ -229,7 +229,7 @@ static long bafs_core_ioctl(struct file* file, unsigned int cmd, unsigned long a
 
     long ret = 0;
 
-    struct bafs_core_ctx* ctx;
+    struct bafs_ctx* ctx;
     void __user*          argp = (void __user*) arg;
 
 
@@ -243,7 +243,7 @@ static long bafs_core_ioctl(struct file* file, unsigned int cmd, unsigned long a
 
     switch (cmd) {
     case BAFS_CORE_IOC_REG_MEM:
-        ctx     = (struct bafs_core_ctx*) file->private_data;
+        ctx     = (struct bafs_ctx*) file->private_data;
         if (!ctx) {
             ret = -EFAULT;
             goto out;
@@ -282,6 +282,38 @@ out:
     return ret;
 }
 
+struct bafs_mem* bafs_get_mem_with_ctx(const unsigned long vaddr, struct bafs_ctx* ctx) {
+
+    struct bafs_mem* mem = NULL;
+    struct bafs_mem* mem_ = NULL;
+    struct bafs_mem* next = NULL;
+
+    kref_get(&ctx->ref);
+
+
+    spin_lock(&ctx->lock);
+    list_for_each_entry_safe(mem_, next, &ctx->mem_list, mem_list) {
+        kref_get(&mem_->ref);
+        spin_lock(&mem_->lock);
+        if ((mem_->vaddr == vaddr) && (mem_->state != DEAD) && (mem_->state != DEAD_CB)) {
+            mem = mem_;
+            spin_unlock(&mem_->lock);
+
+            goto out_unlock_ctx;
+        }
+        spin_unlock(&mem_->lock);
+        bafs_mem_put(mem_);
+
+    }
+
+out_unlock_ctx:
+    spin_unlock(&ctx->lock);
+    bafs_put_ctx(ctx);
+//out:
+    return mem;
+
+}
+
 struct bafs_mem* bafs_get_mem(const unsigned long vaddr) {
 
     pid_t tgid;
@@ -289,7 +321,7 @@ struct bafs_mem* bafs_get_mem(const unsigned long vaddr) {
     struct bafs_mem* mem = NULL;
     struct bafs_mem* mem_ = NULL;
     struct bafs_mem* next = NULL;
-    struct bafs_core_ctx* ctx;
+    struct bafs_ctx* ctx;
 
     tgid = task_tgid_nr(current);
     tgid_struct = find_get_pid(tgid);
@@ -297,7 +329,7 @@ struct bafs_mem* bafs_get_mem(const unsigned long vaddr) {
         goto out;
     }
 
-    ctx = (struct bafs_core_ctx*) xa_load(&bafs_global_ctx_xa, tgid);
+    ctx = (struct bafs_ctx*) xa_load(&bafs_global_ctx_xa, tgid);
     if ((!ctx)) {
         goto out_put_pid;
     }
@@ -336,7 +368,7 @@ out:
 
 static int bafs_core_open(struct inode* inode, struct file* file) {
     int                   ret;
-    struct bafs_core_ctx* ctx;
+    struct bafs_ctx* ctx;
 
 
     ctx     = kzalloc(sizeof(*ctx), GFP_KERNEL);
@@ -381,9 +413,9 @@ out:
 static inline
 void __bafs_core_ctx_release(struct kref* ref)
 {
-    struct bafs_core_ctx* ctx;
+    struct bafs_ctx* ctx;
 
-    ctx = container_of(ref, struct bafs_core_ctx, ref);
+    ctx = container_of(ref, struct bafs_ctx, ref);
 
     if (ctx) {
         BAFS_CORE_DEBUG("Destroying ctx\n");
@@ -396,20 +428,68 @@ void __bafs_core_ctx_release(struct kref* ref)
 
 }
 
-void bafs_put_ctx(struct bafs_core_ctx * ctx)
+void bafs_put_ctx(struct bafs_ctx * ctx)
 {
     kref_put(&ctx->ref, __bafs_core_ctx_release);
+}
+
+struct bafs_ctx* bafs_get_ctx(void) {
+    int                   ret;
+    struct bafs_ctx* ctx = NULL;
+    struct bafs_ctx* ctx_ = NULL;
+    void* xa_ret;
+
+    ctx     = kzalloc(sizeof(*ctx), GFP_KERNEL);
+    if (!ctx) {
+        ret = -ENOMEM;
+        goto out;
+    }
+    ctx->tgid = task_tgid_nr(current);
+    ctx->tgid_struct = find_get_pid(ctx->tgid);
+    if (!ctx->tgid_struct) {
+        ret = -EFAULT;
+        goto out_free_ctx;
+    }
+
+    xa_init_flags(&ctx->bafs_mem_xa, XA_FLAGS_ALLOC);
+    spin_lock_init(&ctx->lock);
+    INIT_LIST_HEAD(&ctx->mem_list);
+    kref_init(&ctx->ref);
+
+    xa_ret =  xa_cmpxchg(&bafs_global_ctx_xa, ctx->tgid, NULL, ctx, GFP_KERNEL);
+    ret = xa_err(xa_ret);
+
+    if (ret) {
+        goto out_free_mem_xa;
+    }
+    if (xa_ret != NULL) {
+        ctx_ = (struct bafs_ctx*) xa_ret;
+        kref_get(&ctx_->ref);
+        put_pid(ctx->tgid_struct);
+        kfree(ctx);
+        ctx = ctx_;
+    }
+
+    return ctx;
+
+out_free_mem_xa:
+    xa_destroy(&ctx->bafs_mem_xa);
+out_free_ctx:
+    kfree(ctx);
+out:
+    ctx = NULL;
+    return ctx;
 }
 
 static int
 bafs_core_release(struct inode* inode, struct file* file)
 {
     int                   ret = 0;
-    struct bafs_core_ctx* ctx;
+    struct bafs_ctx* ctx;
     struct bafs_mem*      mem;
     struct bafs_mem*      next;
 
-    ctx = (struct bafs_core_ctx*) file->private_data;
+    ctx = (struct bafs_ctx*) file->private_data;
     if (!ctx) {
         ret = -EINVAL;
         goto out;

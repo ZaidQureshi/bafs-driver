@@ -52,7 +52,7 @@ void bafs_put_group(struct bafs_group * group)
 
 
 long
-bafs_group_dma_map_mem(struct bafs_group* group, void __user* user_params)
+bafs_group_dma_map_mem(struct bafs_group* group, struct bafs_ctx* ctx, void __user* user_params)
 {
     long     ret                  = 0;
     int      i                    = 0;
@@ -60,7 +60,7 @@ bafs_group_dma_map_mem(struct bafs_group* group, void __user* user_params)
 
     struct bafs_mem_dma**                    dmas;
 
-    struct BAFS_GROUP_IOC_DMA_MAP_MEM_PARAMS params = {0};
+    struct BAFS_IOC_DMA_MAP_MEM_PARAMS params = {0};
 
 
     if (copy_from_user(&params, user_params, sizeof(params))) {
@@ -78,7 +78,7 @@ bafs_group_dma_map_mem(struct bafs_group* group, void __user* user_params)
 
 
     for (i  = 0; i < group->n_ctrls; i++) {
-        ret = bafs_ctrl_dma_map_mem(group->ctrls[i], params.vaddr, &params.n_dma_addrs, params.dma_addrs + (n_dma_addrs_per_ctrl * i), &dmas[i], i);
+        ret = bafs_ctrl_dma_map_mem(group->ctrls[i], ctx, params.vaddr, &params.n_dma_addrs, params.dma_addrs + (n_dma_addrs_per_ctrl * i), &dmas[i], i);
         if (ret < 0) {
             goto out_unmap_mems;
         }
@@ -114,13 +114,19 @@ bafs_group_ioctl(struct file* file, unsigned int cmd, unsigned long arg)
 {
     long ret = 0;
 
-    void __user*       argp  = (void __user*) arg;
-    struct bafs_group* group = file->private_data;
+    void __user*      argp = (void __user*) arg;
+    struct bafs_group* group;
+    struct bafs_ctx* ctx;
 
-    if (!group) {
+    struct bafs_group_ctx* group_ctx = file->private_data;
+
+    if (!group_ctx) {
         ret = -EINVAL;
         goto out;
     }
+
+    group = group_ctx->group;
+    ctx = group_ctx->ctx;
     bafs_get_group(group);
 
     BAFS_GROUP_DEBUG("IOCTL called \t cmd = %u\n", cmd);
@@ -134,8 +140,15 @@ bafs_group_ioctl(struct file* file, unsigned int cmd, unsigned long arg)
     }
 
     switch (cmd) {
+    case BAFS_GROUP_IOC_REG_MEM:
+        ret = bafs_core_reg_mem(argp, ctx);
+        if (ret < 0) {
+            BAFS_CTRL_ERR("IOCTL to register memory failed\n");
+            goto out;
+        }
+        break;
     case BAFS_GROUP_IOC_DMA_MAP_MEM:
-        ret = bafs_group_dma_map_mem(group, argp);
+        ret = bafs_group_dma_map_mem(group, ctx, argp);
         if (ret < 0) {
             BAFS_GROUP_ERR("IOCTL to dma map memory failed\n");
             goto out_release_group;
@@ -161,6 +174,8 @@ bafs_group_open(struct inode* inode, struct file* file)
 {
     int                ret = 0;
 
+    struct bafs_group_ctx* group_ctx;
+    struct bafs_ctx* ctx;
     struct bafs_group* group = container_of(inode->i_cdev, struct bafs_group, cdev);
 
     if (!group) {
@@ -168,8 +183,28 @@ bafs_group_open(struct inode* inode, struct file* file)
         goto out;
     }
     bafs_get_group(group);
-    file->private_data = group;
+
+    group_ctx = kzalloc(sizeof(*group_ctx), GFP_KERNEL);
+    if(group_ctx == NULL) {
+        ret = -ENOMEM;
+        goto out_put_group;
+    }
+
+    ctx = bafs_get_ctx();
+    if (ctx == NULL) {
+        ret = -EINVAL;
+        goto out_free_group_ctx;
+    }
+
+    group_ctx->group = group;
+    group_ctx->ctx = ctx;
+
+    file->private_data = group_ctx;
     return ret;
+out_free_group_ctx:
+    kfree(group_ctx);
+out_put_group:
+    bafs_put_group(group);
 out:
     return ret;
 }
@@ -178,14 +213,47 @@ static int
 bafs_group_release(struct inode* inode, struct file* file)
 {
     int ret = 0;
+    struct bafs_ctx* ctx;
+    struct bafs_mem*      mem;
+    struct bafs_mem*      next;
+    struct bafs_group_ctx* group_ctx = (struct bafs_group_ctx*) file->private_data;
 
-    struct bafs_group* group = (struct bafs_group*) file->private_data;
-
-    if (!group) {
+    if (!group_ctx) {
         ret = -EINVAL;
         goto out;
     }
-    bafs_put_group(group);
+
+    ctx = group_ctx->ctx;
+    spin_lock(&ctx->lock);
+    list_for_each_entry_safe(mem, next, &ctx->mem_list, mem_list) {
+        spin_lock(&mem->lock);
+        if (mem->state == STALE) {
+
+            list_del_init(&mem->mem_list);
+
+            xa_erase(&ctx->bafs_mem_xa, mem->mem_id);
+            BAFS_GROUP_DEBUG("Deleting Stale mem registeration\n");
+            spin_unlock(&mem->lock);
+            kfree_rcu(mem, rh);
+            bafs_put_ctx(ctx);
+
+        }
+        else {
+            spin_unlock(&mem->lock);
+        }
+
+
+    }
+
+    spin_unlock(&ctx->lock);
+
+    bafs_put_ctx(ctx);
+    BAFS_GROUP_DEBUG("Closed core and cleaned ctx\n");
+
+    bafs_put_group(group_ctx->group);
+    kfree(group_ctx);
+    file->private_data = NULL;
+    ret = 0;
     return ret;
 out:
     return ret;
@@ -199,12 +267,16 @@ bafs_group_mmap(struct file* file, struct vm_area_struct* vma)
 
     unsigned long cur_map_size  = 0;
     unsigned long      map_size = 0;
-    struct bafs_group* group   = (struct bafs_group*) file->private_data;
+    struct bafs_group* group;
+    struct bafs_group_ctx* ctx = (struct bafs_group_ctx*) file->private_data;
 
-    if (!group) {
+
+    if (!ctx) {
         ret = -EINVAL;
         goto out;
     }
+
+    group  = ctx->group;;
     bafs_get_group(group);
     spin_lock(&group->lock);
 
