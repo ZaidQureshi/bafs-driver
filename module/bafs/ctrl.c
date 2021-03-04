@@ -446,18 +446,33 @@ __bafs_ctrl_mmap(struct file* file, struct vm_area_struct* vma)
     int ret = 0;
 
     unsigned long map_size = 0;
-    struct bafs_ctrl_ctx* ctx= (struct bafs_ctrl_ctx*) file->private_data;
-    struct bafs_ctrl* ctrl = ctx->ctrl;
+    struct bafs_ctrl_ctx* ctrl_ctx = (struct bafs_ctrl_ctx*) file->private_data;
+    struct bafs_ctrl* ctrl;
+    struct bafs_ctx* ctx;
 
-    if (!ctrl) {
+    if (!ctrl_ctx) {
         ret = -EINVAL;
         goto out;
     }
-    ret = bafs_ctrl_mmap(ctrl, vma, vma->vm_start, &map_size);
-    if (ret < 0) {
-        goto out;
+
+    ctrl = ctrl_ctx->ctrl;
+    ctx = ctrl_ctx->ctx;
+
+    if (vma->vm_pgoff == 0) {
+        ret = bafs_ctrl_mmap(ctrl, vma, vma->vm_start, &map_size);
+        if (ret < 0) {
+            goto out;
+        }
+
     }
 
+    else {
+        ret = pin_bafs_mem(vma, ctx);
+        if (ret < 0) {
+            BAFS_CTRL_ERR("Failed to mmap memory \t err = %d\n", ret);
+            goto out;
+        }
+    }
     return ret;
 out:
     return ret;

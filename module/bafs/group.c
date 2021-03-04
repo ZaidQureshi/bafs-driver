@@ -268,28 +268,41 @@ bafs_group_mmap(struct file* file, struct vm_area_struct* vma)
     unsigned long cur_map_size  = 0;
     unsigned long      map_size = 0;
     struct bafs_group* group;
-    struct bafs_group_ctx* ctx = (struct bafs_group_ctx*) file->private_data;
+    struct bafs_ctx* ctx;
+    struct bafs_group_ctx* group_ctx = (struct bafs_group_ctx*) file->private_data;
 
 
-    if (!ctx) {
+    if (!group_ctx) {
         ret = -EINVAL;
         goto out;
     }
 
-    group  = ctx->group;;
-    bafs_get_group(group);
-    spin_lock(&group->lock);
+    group  = group_ctx->group;
+    ctx = group_ctx->ctx;
 
-    for (i = 0; i < group->n_ctrls; i++) {
-        ret = bafs_ctrl_mmap(group->ctrls[i], vma, vma->vm_start + map_size, &cur_map_size);
-        if (ret < 0) {
-            goto out_unlock;
+    if (vma->vm_pgoff == 0) {
+
+        bafs_get_group(group);
+        spin_lock(&group->lock);
+
+        for (i = 0; i < group->n_ctrls; i++) {
+            ret = bafs_ctrl_mmap(group->ctrls[i], vma, vma->vm_start + map_size, &cur_map_size);
+            if (ret < 0) {
+                goto out_unlock;
+            }
+            map_size += cur_map_size;
         }
-        map_size += cur_map_size;
-    }
 
-    spin_unlock(&group->lock);
-    bafs_put_group(group);
+        spin_unlock(&group->lock);
+        bafs_put_group(group);
+    }
+    else {
+        ret = pin_bafs_mem(vma, ctx);
+        if (ret < 0) {
+            BAFS_GROUP_ERR("Failed to mmap memory \t err = %d\n", ret);
+            goto out;
+        }
+    }
     ret = 0;
     return ret;
 out_unlock:
