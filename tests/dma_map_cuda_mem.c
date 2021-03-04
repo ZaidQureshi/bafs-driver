@@ -75,8 +75,16 @@ int main(int argc, char* argv[] ) {
 
     printf("orig_addr: %llx\taligned_addr: %llx\n", addr, aligned_addr);
 
+    ret = bafs_ctrl_open(ctrl_name, &ctrl_handle);
+    if (ret) {
+        perror("Error while openning ctrl");
+        goto out_free_mem;
+    }
 
-    ret = bafs_core_map((void**)&aligned_addr, orig_size, loc);
+    printf("Successfully opened ctrl file\n");
+
+
+    ret = bafs_ctrl_map((void**)&aligned_addr, orig_size, loc, &ctrl_handle);
 
     if (ret) {
         perror("Error while pinning memory");
@@ -86,13 +94,7 @@ int main(int argc, char* argv[] ) {
     printf("Successfully registered and pinned memory\n");
 
 
-    ret = bafs_ctrl_open(ctrl_name, &ctrl_handle);
-    if (ret) {
-        perror("Error while openning ctrl");
-        goto out_free_mem;
-    }
 
-    printf("Successfully opened ctrl file\n");
 
     n_pages =(orig_size + PAGE_SIZE - 1) / PAGE_SIZE;
 
