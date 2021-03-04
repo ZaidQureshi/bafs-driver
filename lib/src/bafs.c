@@ -28,76 +28,7 @@ static int bafs_core_init(void) {
 }
 
 
-int bafs_core_reg_mem(unsigned size, unsigned loc, bafs_mem_hnd_t* ret_handle) {
-    int ret = 0;
-    struct BAFS_CORE_IOC_REG_MEM_PARAMS params;
 
-    if (bafs_core_fd < 0) {
-        ret = bafs_core_init();
-        if (ret < 0)
-            return ret;
-    }
-
-    params.size = size;
-    params.loc = loc;
-    params.handle = 0;
-
-    ret = ioctl(bafs_core_fd, BAFS_CORE_IOC_REG_MEM, &params);
-    if (ret) {
-
-        ret = errno;
-        return ret;
-    }
-
-    *ret_handle = params.handle;
-
-    return 0;
-
-}
-
-int bafs_core_pin_mem(void** addr, unsigned size, bafs_mem_hnd_t handle) {
-    int ret = 0;
-    void* addr_;
-
-    if (bafs_core_fd < 0) {
-        ret = EINVAL;
-        fprintf(stderr, "bafs_core_fd invalid: %d\n", bafs_core_fd);
-        return ret;
-    }
-
-    addr_ = mmap(*addr, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, bafs_core_fd, handle);
-    if (addr_ == MAP_FAILED) {
-        ret = errno;
-        fprintf(stderr, "mmap failed: %d\n", ret);
-        return ret;
-    }
-    *addr = addr_;
-
-    return 0;
-}
-
-int bafs_core_map(void** addr, unsigned size, unsigned loc) {
-    int ret = 0;
-    bafs_mem_hnd_t handle;
-
-    if (bafs_core_fd < 0) {
-        ret = bafs_core_init();
-        if (ret < 0)
-            return ret;
-    }
-
-    ret = bafs_core_reg_mem(size, loc, &handle);
-    if (ret) {
-        return ret;
-    }
-
-    ret = bafs_core_pin_mem(addr, size, handle);
-    if (ret) {
-        return ret;
-    }
-
-    return 0;
-}
 
 int bafs_core_create_group(unsigned int n_ctrls, char* ctrl_names[], char* ret_group_name) {
     int ret = 0;
@@ -174,6 +105,7 @@ int bafs_core_delete_group(char* group_name) {
 
 
 /* BAFS CTRL/GROUP */
+
 int bafs_ctrl_open(const char* ctrl_dev_name, struct bafs_ctrl_t* ctrl_handle) {
     int ret = 0;
     int fd;
@@ -208,11 +140,101 @@ int bafs_ctrl_open(const char* ctrl_dev_name, struct bafs_ctrl_t* ctrl_handle) {
 }
 
 
+int bafs_ctrl_reg_mem(unsigned size, unsigned loc, struct bafs_ctrl_t* ctrl_handle, bafs_mem_hnd_t* ret_handle) {
+    int ret = 0;
+    struct BAFS_IOC_REG_MEM_PARAMS params;
+
+    if (ctrl_handle->fd < 0) {
+        ret = EINVAL;
+        fprintf(stderr, "ctrl fd invalid: %d\n", ctrl_handle->fd);
+        return ret;
+    }
+
+    params.size = size;
+    params.loc = loc;
+    params.handle = 0;
+
+    if (ctrl_handle->type == GROUP) {
+
+        ret = ioctl(ctrl_handle->fd, BAFS_GROUP_IOC_REG_MEM, &params);
+        if (ret) {
+            ret = errno;
+            return ret;
+        }
+
+
+    }
+    else if (ctrl_handle->type == NOT_GROUP) {
+
+        ret = ioctl(ctrl_handle->fd, BAFS_CTRL_IOC_REG_MEM, &params);
+        if (ret) {
+            ret = errno;
+            return ret;
+        }
+
+
+    }
+    else {
+        ret = EINVAL;
+        return ret;
+    }
+
+    *ret_handle = params.handle;
+
+    return 0;
+
+}
+
+int bafs_ctrl_pin_mem(void** addr, unsigned size, struct bafs_ctrl_t* ctrl_handle, bafs_mem_hnd_t handle) {
+    int ret = 0;
+    void* addr_;
+
+    if (ctrl_handle->fd < 0) {
+        ret = EINVAL;
+        fprintf(stderr, "ctrl fd invalid: %d\n", ctrl_handle->fd);
+        return ret;
+    }
+
+    addr_ = mmap(*addr, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, ctrl_handle->fd, handle);
+    if (addr_ == MAP_FAILED) {
+        ret = errno;
+        fprintf(stderr, "mmap failed: %d\n", ret);
+        return ret;
+    }
+    *addr = addr_;
+
+    return 0;
+}
+
+int bafs_ctrl_map(void** addr, unsigned size, unsigned loc, struct bafs_ctrl_t* ctrl_handle) {
+    int ret = 0;
+    bafs_mem_hnd_t handle;
+
+    if (ctrl_handle->fd < 0) {
+        ret = EINVAL;
+        fprintf(stderr, "ctrl fd invalid: %d\n", ctrl_handle->fd);
+        return ret;
+    }
+    ret = bafs_ctrl_reg_mem(size, loc, ctrl_handle, &handle);
+    if (ret) {
+        return ret;
+    }
+
+    ret = bafs_ctrl_pin_mem(addr, size, ctrl_handle, handle);
+    if (ret) {
+        return ret;
+    }
+
+    return 0;
+}
+
+
+
+
 int bafs_ctrl_dma_map_mem(void* vaddr, struct bafs_dma_t* dma_handle, struct bafs_ctrl_t* ctrl_handle) {
     int ret = 0;
 
-    struct BAFS_CTRL_IOC_DMA_MAP_MEM_PARAMS ctrl_params;
-    struct BAFS_GROUP_IOC_DMA_MAP_MEM_PARAMS group_params;
+    struct BAFS_IOC_DMA_MAP_MEM_PARAMS params;
 
 
     if (ctrl_handle->fd < 0) {
@@ -220,37 +242,37 @@ int bafs_ctrl_dma_map_mem(void* vaddr, struct bafs_dma_t* dma_handle, struct baf
         return ret;
     }
 
+    params.vaddr = (unsigned long) vaddr;
+    params.dma_addrs = (unsigned long*) dma_handle->dma_addrs;
+    params.n_dma_addrs = dma_handle->n_dma_addrs;
+
     if (ctrl_handle->type == GROUP) {
-        group_params.vaddr = (unsigned long) vaddr;
-        group_params.dma_addrs = (unsigned long*) dma_handle->dma_addrs;
-        group_params.n_dma_addrs = dma_handle->n_dma_addrs;
-        ret = ioctl(ctrl_handle->fd, BAFS_GROUP_IOC_DMA_MAP_MEM, &group_params);
+
+        ret = ioctl(ctrl_handle->fd, BAFS_GROUP_IOC_DMA_MAP_MEM, &params);
         if (ret) {
             ret = errno;
             return ret;
         }
 
-        dma_handle->vaddr = vaddr;
-        dma_handle->n_dma_addrs = group_params.n_dma_addrs;
+
     }
     else if (ctrl_handle->type == NOT_GROUP) {
-        ctrl_params.vaddr = (unsigned long) vaddr;
-        ctrl_params.dma_addrs = (unsigned long*) dma_handle->dma_addrs;
-        ctrl_params.n_dma_addrs = dma_handle->n_dma_addrs;
-        ret = ioctl(ctrl_handle->fd, BAFS_CTRL_IOC_DMA_MAP_MEM, &ctrl_params);
+
+        ret = ioctl(ctrl_handle->fd, BAFS_CTRL_IOC_DMA_MAP_MEM, &params);
         if (ret) {
             ret = errno;
             return ret;
         }
 
-        dma_handle->vaddr = vaddr;
-        dma_handle->n_dma_addrs = ctrl_params.n_dma_addrs;
 
     }
     else {
         ret = EINVAL;
         return ret;
     }
+
+    dma_handle->vaddr = vaddr;
+    dma_handle->n_dma_addrs = params.n_dma_addrs;
 
     return 0;
 }
