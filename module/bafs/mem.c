@@ -301,13 +301,13 @@ long bafs_core_reg_mem(void __user* user_params, struct bafs_ctx* ctx)
     INIT_LIST_HEAD(&mem->mem_list);
 
     spin_lock(&ctx->lock);
-    ret     = xa_alloc(&ctx->bafs_mem_xa, &(mem->mem_id), mem, xa_limit_32b, GFP_KERNEL);
+    ret     = xa_alloc(&ctx->bafs_mem_xa, &(mem->mem_id), mem, xa_limit_31b, GFP_KERNEL);
     if (ret < 0) {
         ret = -ENOMEM;
         BAFS_CORE_ERR("Failed to allocate entry in bafs_mem_xa \t ret = %ld\n", ret);
         goto out_delete_mem;
     }
-    params.handle = mem->mem_id;
+    params.handle = mem->mem_id+1;
 
     list_add(&mem->mem_list, &ctx->mem_list);
     spin_unlock(&ctx->lock);
@@ -328,7 +328,7 @@ out_erase_xa_entry:
 
     spin_lock(&ctx->lock);
     list_del_init(&mem->mem_list);
-    xa_erase(&ctx->bafs_mem_xa, params.handle);
+    xa_erase(&ctx->bafs_mem_xa, mem->mem_id);
 
 out_delete_mem:
     spin_unlock(&ctx->lock);
@@ -434,7 +434,7 @@ int pin_bafs_mem(struct vm_area_struct* vma, struct bafs_ctx* ctx)
     struct bafs_mem* mem;
     bafs_mem_hnd_t   mem_id;
 
-    mem_id = vma->vm_pgoff;
+    mem_id = vma->vm_pgoff-1;
     kref_get(&ctx->ref);
     spin_lock(&ctx->lock);
     mem    = (struct bafs_mem*) xa_load(&ctx->bafs_mem_xa, mem_id);
